@@ -1,0 +1,91 @@
+# API Endpoints Guide
+
+This backend provides a API with video processing, AI-powered insights, and user management features.
+
+## Health Check
+
+- **GET /healthcheck** - Check API and database connectivity
+  - Route: [src/routes/healthcheck.routes.ts](mdc:src/routes/healthcheck.routes.ts)
+  - Controller: [src/controllers/healthcheck.controller.ts](mdc:src/controllers/healthcheck.controller.ts)
+  - Schema: [src/schemas/healthcheck.schema.ts](mdc:src/schemas/healthcheck.schema.ts)
+
+## Authentication
+
+- **POST /auth/login** - Authenticate user and get JWT token
+  - Route: [src/routes/auth.routes.ts](mdc:src/routes/auth.routes.ts)
+  - Controller: [src/controllers/auth.controller.ts](mdc:src/controllers/auth.controller.ts)
+  - Schema: [src/schemas/user.schema.ts](mdc:src/schemas/user.schema.ts)
+  - **Public endpoint** - No authentication required
+
+## User Management
+
+- **POST /user/register** - Create new user account
+  - Route: [src/routes/user.routes.ts](mdc:src/routes/user.routes.ts)
+  - Controller: [src/controllers/user.controller.ts](mdc:src/controllers/user.controller.ts)
+  - Schema: [src/schemas/user.schema.ts](mdc:src/schemas/user.schema.ts)
+  - Service: [src/services/user.service.ts](mdc:src/services/user.service.ts)
+  - **Public endpoint** - Registration is open
+
+- **GET /user/:id** - Get user profile
+  - Route: [src/routes/user.routes.ts](mdc:src/routes/user.routes.ts)
+  - Controller: [src/controllers/user.controller.ts](mdc:src/controllers/user.controller.ts)
+  - Schema: [src/schemas/user.schema.ts](mdc:src/schemas/user.schema.ts)
+  - Service: [src/services/user.service.ts](mdc:src/services/user.service.ts)
+  - **Protected endpoint** - Requires JWT authentication
+
+## Video Processing
+
+- **POST /video** - Submit video URL for processing
+  - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
+  - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
+  - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
+  - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
+  - **Features**: Video URL validation, user association
+  - **Protected endpoint** - Requires JWT authentication
+
+- **GET /video** - List all videos for authenticated user
+  - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
+  - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
+  - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
+  - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
+  - **Features**: User-specific video listing, status tracking
+  - **Protected endpoint** - Requires JWT authentication
+
+- **GET /video/:id** - Get specific video details
+  - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
+  - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
+  - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
+  - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
+  - **Features**: Video metadata, transcription, AI insights
+  - **Protected endpoint** - Requires JWT authentication
+
+- **POST /video/:id/process** - Start video processing
+  - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
+  - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
+  - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
+  - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
+  - **Features**: Background processing, AI analysis, transcription
+  - **Protected endpoint** - Requires JWT authentication
+
+## Swagger Documentation
+
+- **GET /** - Interactive API documentation
+  - Configured in [src/server.ts](mdc:src/server.ts)
+  - Documentation definitions in [src/docs/](mdc:src/docs) directory
+  - **Public access** - No authentication required
+
+## Authentication Requirements
+
+- **Public endpoints**: `/healthcheck`, `/auth/login`, `/user/register`, `/` (docs)
+- **Protected endpoints**: `/user/:id`, `/video/*`
+- **Authentication method**: Bearer JWT token in Authorization header
+- **Token obtained from**: `/auth/login` endpoint
+
+## Rate Limiting
+
+- All endpoints have **100 requests per minute** limit per IP
+- Configured in [src/server.ts](mdc:src/server.ts) via `@fastify/rate-limit`
+
+## Testing Coverage
+
+- Video processing endpoints tested in [**tests**/video.test.ts](mdc:__tests__/video.test.ts)
