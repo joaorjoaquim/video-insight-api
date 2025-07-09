@@ -1,5 +1,47 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { getUserByEmail, validatePassword } from '../services/user.service';
+import {
+  getUserByEmail,
+  validatePassword,
+  createUser,
+  createOrUpdateOAuthUser,
+} from '../services/user.service';
+import { OAuthService, OAuthProvider } from '../services/oauth.service';
+
+export async function signupController(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const { email, password } = request.body as {
+    email: string;
+    password: string;
+  };
+
+  try {
+    // Check if user already exists
+    const existingUser = await getUserByEmail(email);
+    if (existingUser) {
+      return reply.status(409).send({ message: 'User already exists' });
+    }
+
+    // Extract name from email (before @)
+    const name = email.split('@')[0];
+
+    const user = await createUser({ email, password, name });
+
+    const token = await reply.jwtSign(
+      { userId: user.id, email: user.email },
+      { expiresIn: '15d' }
+    );
+
+    return reply.status(201).send({
+      user,
+      token,
+    });
+  } catch (error) {
+    request.log.error(error);
+    return reply.status(500).send({ message: 'Internal server error' });
+  }
+}
 
 export async function loginController(
   request: FastifyRequest,
@@ -17,6 +59,11 @@ export async function loginController(
       return reply.status(401).send({ message: 'Invalid email or password' });
     }
 
+    // Check if user has password (OAuth users might not have passwords)
+    if (!user.password) {
+      return reply.status(401).send({ message: 'Please use OAuth to login' });
+    }
+
     const isValid = await validatePassword(user, password);
     if (!isValid) {
       return reply.status(401).send({ message: 'Invalid email or password' });
@@ -24,7 +71,7 @@ export async function loginController(
 
     const token = await reply.jwtSign(
       { userId: user.id, email: user.email },
-      { expiresIn: '12h' }
+      { expiresIn: '15d' }
     );
 
     const { password: _, ...userWithoutPassword } = user;
@@ -36,5 +83,71 @@ export async function loginController(
   } catch (error) {
     request.log.error(error);
     return reply.status(500).send({ message: 'Internal server error' });
+  }
+}
+
+export async function oauthRedirectController(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const { provider } = request.params as { provider: string };
+
+  try {
+    if (!['google', 'discord'].includes(provider)) {
+      return reply.status(400).send({ message: 'Unsupported provider' });
+    }
+
+    const oauthUrl = OAuthService.getOAuthUrl(provider as OAuthProvider);
+    return reply.redirect(oauthUrl);
+  } catch (error) {
+    request.log.error(error);
+    return reply.status(500).send({ message: 'OAuth configuration error' });
+  }
+}
+
+export async function oauthCallbackController(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const { provider } = request.params as { provider: string };
+  const { code } = request.query as { code: string };
+
+  try {
+    if (!['google', 'discord'].includes(provider)) {
+      return reply.status(400).send({ message: 'Unsupported provider' });
+    }
+
+    if (!code) {
+      return reply.status(400).send({ message: 'Authorization code required' });
+    }
+
+    // Handle OAuth callback
+    const userProfile = await OAuthService.handleOAuthCallback(
+      provider as OAuthProvider,
+      code
+    );
+
+    // Create or update user
+    const user = await createOrUpdateOAuthUser(
+      provider,
+      userProfile.providerId,
+      userProfile.email,
+      userProfile.name,
+      userProfile.avatarUrl
+    );
+
+    // Generate JWT token
+    const token = await reply.jwtSign(
+      { userId: user.id, email: user.email },
+      { expiresIn: '15d' }
+    );
+
+    return reply.send({
+      user,
+      token,
+    });
+  } catch (error) {
+    request.log.error(error);
+    return reply.status(500).send({ message: 'OAuth callback failed' });
   }
 }

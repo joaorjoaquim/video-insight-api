@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('users')
@@ -14,11 +15,21 @@ export class UserEntity {
   @Column({ type: 'text', unique: true })
   email: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   password: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   name: string;
+
+  @Column({ type: 'text', nullable: true })
+  avatarUrl: string;
+
+  @Column({ type: 'text', nullable: true })
+  provider: string;
+
+  @Column({ type: 'text', nullable: true })
+  @Index()
+  providerId: string;
 
   @CreateDateColumn()
   createdAt: Date;

@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 export async function createUser(
   userData: Partial<UserEntity>
 ): Promise<Partial<UserEntity>> {
+  // Hash password only if provided (OAuth users don't have passwords)
   if (userData.password) {
     const saltRounds = 10;
     userData.password = await bcrypt.hash(userData.password, saltRounds);
@@ -13,6 +14,52 @@ export async function createUser(
   const user = UserRepository.create(userData);
   const savedUser = await UserRepository.save(user);
 
+  const { password, ...userWithoutPassword } = savedUser;
+  return userWithoutPassword;
+}
+
+export async function createOrUpdateOAuthUser(
+  provider: string,
+  providerId: string,
+  email: string,
+  name: string,
+  avatarUrl?: string
+): Promise<Partial<UserEntity>> {
+  // Check if user exists by providerId
+  let user = await UserRepository.findOne({
+    where: { providerId, provider },
+  });
+
+  if (!user) {
+    // Check if user exists by email
+    user = await UserRepository.findOne({
+      where: { email },
+    });
+
+    if (user) {
+      // Update existing user with OAuth info
+      user.provider = provider;
+      user.providerId = providerId;
+      user.avatarUrl = avatarUrl;
+      user.name = name; // Update name from OAuth
+    } else {
+      // Create new OAuth user
+      user = UserRepository.create({
+        email,
+        name,
+        avatarUrl,
+        provider,
+        providerId,
+        password: null, // OAuth users don't have passwords
+      });
+    }
+  } else {
+    // Update existing OAuth user
+    user.name = name;
+    user.avatarUrl = avatarUrl;
+  }
+
+  const savedUser = await UserRepository.save(user);
   const { password, ...userWithoutPassword } = savedUser;
   return userWithoutPassword;
 }
