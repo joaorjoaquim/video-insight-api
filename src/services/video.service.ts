@@ -54,12 +54,44 @@ export async function getVideoById(id: number): Promise<VideoEntity | null> {
 }
 
 export async function getVideosByUserId(
-  userId: number
+  userId: number,
+  status?: string,
+  limit?: number,
+  offset?: number
 ): Promise<VideoEntity[]> {
-  return await VideoRepository.find({
-    where: { userId },
-    order: { createdAt: 'DESC' },
-  });
+  const queryBuilder = VideoRepository.createQueryBuilder('video')
+    .where('video.userId = :userId', { userId })
+    .orderBy('video.createdAt', 'DESC');
+
+  if (status) {
+    queryBuilder.andWhere('video.status = :status', { status });
+  }
+
+  if (limit) {
+    queryBuilder.limit(limit);
+  }
+
+  if (offset) {
+    queryBuilder.offset(offset);
+  }
+
+  return await queryBuilder.getMany();
+}
+
+export async function getVideosCountByUserId(
+  userId: number,
+  status?: string
+): Promise<number> {
+  const queryBuilder = VideoRepository.createQueryBuilder('video').where(
+    'video.userId = :userId',
+    { userId }
+  );
+
+  if (status) {
+    queryBuilder.andWhere('video.status = :status', { status });
+  }
+
+  return await queryBuilder.getCount();
 }
 
 export async function updateVideo(

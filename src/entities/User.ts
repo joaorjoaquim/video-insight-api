@@ -5,7 +5,9 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  OneToMany,
 } from 'typeorm';
+import { VideoEntity } from './Video';
 
 @Entity('users')
 export class UserEntity {
@@ -30,6 +32,9 @@ export class UserEntity {
   @Column({ type: 'text', nullable: true })
   @Index()
   providerId: string;
+
+  @OneToMany(() => VideoEntity, (video) => video.user)
+  videos: VideoEntity[];
 
   @CreateDateColumn()
   createdAt: Date;

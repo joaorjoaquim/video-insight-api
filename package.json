@@ -9,8 +9,8 @@
     "start": "vercel start",
     "test": "jest",
     "format": "prettier --write .",
-    "migration:run": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run",
-    "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert"
+    "migration:run": "tsx ./node_modules/typeorm/cli.js migration:run --dataSource src/config/db.config.ts",
+    "migration:revert": "tsx ./node_modules/typeorm/cli.js migration:revert --dataSource src/config/db.config.ts"
   },
   "author": "",
   "license": "ISC",

@@ -39,8 +39,26 @@ export async function videoRoutes(fastify: FastifyInstance) {
     '/',
     {
       schema: {
+        querystring: Type.Object({
+          status: Type.Optional(
+            Type.String({ description: 'Filter by video status' })
+          ),
+          limit: Type.Optional(
+            Type.Number({ description: 'Number of videos to return' })
+          ),
+          offset: Type.Optional(
+            Type.Number({ description: 'Number of videos to skip' })
+          ),
+        }),
         response: {
-          200: VideoListResponseSchema,
+          200: Type.Object({
+            videos: VideoListResponseSchema,
+            pagination: Type.Object({
+              total: Type.Number(),
+              limit: Type.Number(),
+              offset: Type.Number(),
+            }),
+          }),
           401: ErrorResponseSchema,
           500: ErrorResponseSchema,
         },

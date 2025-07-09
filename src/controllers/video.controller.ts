@@ -3,6 +3,7 @@ import {
   createVideo,
   getVideoById,
   getVideosByUserId,
+  getVideosCountByUserId,
   processVideo,
   startVideoDownload,
   startTranscription,
@@ -18,6 +19,14 @@ interface CreateVideoRequest {
 interface GetVideoRequest {
   Params: {
     id: string;
+  };
+}
+
+interface GetUserVideosRequest {
+  Querystring: {
+    status?: string;
+    limit?: string;
+    offset?: string;
   };
 }
 
@@ -102,19 +111,34 @@ export async function getVideoHandler(
 }
 
 export async function getUserVideosHandler(
-  request: FastifyRequest,
+  request: FastifyRequest<GetUserVideosRequest>,
   reply: FastifyReply
 ) {
   try {
     const userId = (request.user as any)?.userId;
+    const { status, limit, offset } = request.query;
 
     if (!userId) {
       return reply.status(401).send({ message: 'Authentication required' });
     }
 
-    const videos = await getVideosByUserId(userId);
+    const videos = await getVideosByUserId(
+      userId,
+      status,
+      limit ? parseInt(limit) : undefined,
+      offset ? parseInt(offset) : undefined
+    );
 
-    return reply.send(videos);
+    const totalCount = await getVideosCountByUserId(userId, status);
+
+    return reply.send({
+      videos,
+      pagination: {
+        total: totalCount,
+        limit: limit ? parseInt(limit) : videos.length,
+        offset: offset ? parseInt(offset) : 0,
+      },
+    });
   } catch (error) {
     return reply.status(500).send({
       message:
