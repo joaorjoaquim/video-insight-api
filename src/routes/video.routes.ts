@@ -4,6 +4,7 @@ import {
   getVideoHandler,
   getUserVideosHandler,
   processVideoHandler,
+  checkVideoStatusHandler,
 } from '../controllers/video.controller';
 import {
   CreateVideoBodySchema,
@@ -83,5 +84,26 @@ export async function videoRoutes(fastify: FastifyInstance) {
       },
     },
     processVideoHandler
+  );
+
+  fastify.get(
+    '/:id/status',
+    {
+      schema: {
+        params: GetVideoParamsSchema,
+        response: {
+          200: Type.Object({
+            video: VideoResponseSchema,
+            status: Type.String(),
+            message: Type.String(),
+          }),
+          401: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+    },
+    checkVideoStatusHandler
   );
 }

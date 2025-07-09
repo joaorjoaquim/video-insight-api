@@ -10,12 +10,12 @@ const baseConfig: Partial<DataSourceOptions> = {
   type: 'postgres',
   entities: [__dirname + '/../entities/*.{js,ts}'],
   migrations: [__dirname + '/../migrations/*.{js,ts}'],
-  synchronize: isTestEnv ? false : false,
+  synchronize: isTestEnv ? true : false,
   ssl:
     process.env.DB_SSL === 'true'
       ? {
-        rejectUnauthorized: false,
-      }
+          rejectUnauthorized: false,
+        }
       : false,
   extra: {
     max: Number(process.env.DB_MAX_CONNECTION) || 10,
@@ -27,7 +27,8 @@ const baseConfig: Partial<DataSourceOptions> = {
 
 function parseDatabaseUrl(url: string) {
   try {
-    const withoutProtocol = url.replace('postgres://', '');
+    // Handle both postgres:// and postgresql:// protocols
+    const withoutProtocol = url.replace(/^postgres(ql)?:\/\//, '');
 
     const [auth, serverPart] = withoutProtocol.split('@');
 
@@ -61,20 +62,34 @@ function parseDatabaseUrl(url: string) {
   }
 }
 
-const writeConfig = process.env.DATABASE_URL_WRITE
-  ? { ...baseConfig, ...parseDatabaseUrl(process.env.DATABASE_URL_WRITE) }
-  : {
-    ...baseConfig,
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 5432,
-    username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'test',
-  };
+// In development, use individual variables; in production, use full URLs
+const isDevelopment = process.env.NODE_ENV === 'development';
 
-const readConfig = process.env.DATABASE_URL_READ
-  ? { ...baseConfig, ...parseDatabaseUrl(process.env.DATABASE_URL_READ) }
-  : writeConfig;
+const writeConfig = isDevelopment
+  ? {
+      ...baseConfig,
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT) || 5432,
+      username: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'test',
+    }
+  : process.env.DATABASE_URL_WRITE
+    ? { ...baseConfig, ...parseDatabaseUrl(process.env.DATABASE_URL_WRITE) }
+    : {
+        ...baseConfig,
+        host: process.env.DB_HOST || 'localhost',
+        port: Number(process.env.DB_PORT) || 5432,
+        username: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_NAME || 'test',
+      };
+
+const readConfig = isDevelopment
+  ? writeConfig
+  : process.env.DATABASE_URL_READ
+    ? { ...baseConfig, ...parseDatabaseUrl(process.env.DATABASE_URL_READ) }
+    : writeConfig;
 
 export const WriteDataSource = new DataSource(writeConfig as DataSourceOptions);
 export const ReadDataSource = new DataSource(readConfig as DataSourceOptions);
@@ -117,7 +132,7 @@ async function connectWithRetry(
         throw error;
       }
 
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }

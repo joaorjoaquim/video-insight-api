@@ -45,7 +45,7 @@ export class VideoEntity {
   insights: any;
 
   @Column({ type: 'text', default: 'pending' })
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'downloaded' | 'transcribing' | 'completed' | 'failed';
 
   @Column({ type: 'text', nullable: true })
   errorMessage: string;

@@ -4,6 +4,9 @@ import {
   getVideoById,
   getVideosByUserId,
   processVideo,
+  startVideoDownload,
+  startTranscription,
+  checkTranscriptionStatus,
 } from '../services/video.service';
 
 interface CreateVideoRequest {
@@ -24,13 +27,19 @@ interface ProcessVideoRequest {
   };
 }
 
+interface CheckStatusRequest {
+  Params: {
+    id: string;
+  };
+}
+
 export async function createVideoHandler(
   request: FastifyRequest<CreateVideoRequest>,
   reply: FastifyReply
 ) {
   try {
     const { videoUrl } = request.body;
-    const userId = (request.user as any)?.id;
+    const userId = (request.user as any)?.userId;
 
     if (!userId) {
       return reply.status(401).send({ message: 'Authentication required' });
@@ -44,7 +53,15 @@ export async function createVideoHandler(
 
     const video = await createVideo(videoData);
 
-    return reply.status(201).send(video);
+    // Start processing in background
+    startVideoDownload(video.id).catch((error) => {
+      console.error('Video download error:', error);
+    });
+
+    return reply.status(201).send({
+      ...video,
+      message: 'Video created and processing started',
+    });
   } catch (error) {
     return reply.status(400).send({
       message:
@@ -59,7 +76,7 @@ export async function getVideoHandler(
 ) {
   try {
     const { id } = request.params;
-    const userId = (request.user as any)?.id;
+    const userId = (request.user as any)?.userId;
 
     if (!userId) {
       return reply.status(401).send({ message: 'Authentication required' });
@@ -89,7 +106,7 @@ export async function getUserVideosHandler(
   reply: FastifyReply
 ) {
   try {
-    const userId = (request.user as any)?.id;
+    const userId = (request.user as any)?.userId;
 
     if (!userId) {
       return reply.status(401).send({ message: 'Authentication required' });
@@ -106,13 +123,95 @@ export async function getUserVideosHandler(
   }
 }
 
+export async function checkVideoStatusHandler(
+  request: FastifyRequest<CheckStatusRequest>,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = request.params;
+    const userId = (request.user as any)?.userId;
+
+    if (!userId) {
+      return reply.status(401).send({ message: 'Authentication required' });
+    }
+
+    const video = await getVideoById(parseInt(id));
+
+    if (!video) {
+      return reply.status(404).send({ message: 'Video not found' });
+    }
+
+    // Ensure user can only check their own videos
+    if (video.userId !== userId) {
+      return reply.status(403).send({ message: 'Access denied' });
+    }
+
+    // Check current status and continue processing if needed
+    let statusResult: {
+      status:
+        | 'pending'
+        | 'downloaded'
+        | 'transcribing'
+        | 'completed'
+        | 'failed';
+    } = { status: video.status };
+
+    if (video.status === 'pending') {
+      // Start download if not started
+      try {
+        await startVideoDownload(video.id);
+        statusResult = { status: 'downloaded' };
+      } catch (error) {
+        statusResult = { status: 'failed' };
+      }
+    } else if (video.status === 'downloaded') {
+      // Start transcription if not started
+      try {
+        await startTranscription(video.id);
+        statusResult = { status: 'transcribing' };
+      } catch (error) {
+        statusResult = { status: 'failed' };
+      }
+    } else if (video.status === 'transcribing') {
+      // Check transcription status
+      try {
+        const result = await checkTranscriptionStatus(video.id);
+        statusResult = {
+          status: result.status as
+            | 'pending'
+            | 'downloaded'
+            | 'transcribing'
+            | 'completed'
+            | 'failed',
+        };
+      } catch (error) {
+        statusResult = { status: 'failed' };
+      }
+    }
+
+    // Get updated video data
+    const updatedVideo = await getVideoById(parseInt(id));
+
+    return reply.send({
+      video: updatedVideo,
+      status: statusResult.status,
+      message: `Video status: ${statusResult.status}`,
+    });
+  } catch (error) {
+    return reply.status(500).send({
+      message:
+        error instanceof Error ? error.message : 'Failed to check video status',
+    });
+  }
+}
+
 export async function processVideoHandler(
   request: FastifyRequest<ProcessVideoRequest>,
   reply: FastifyReply
 ) {
   try {
     const { id } = request.params;
-    const userId = (request.user as any)?.id;
+    const userId = (request.user as any)?.userId;
 
     if (!userId) {
       return reply.status(401).send({ message: 'Authentication required' });
