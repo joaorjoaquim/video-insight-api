@@ -15,6 +15,13 @@ interface GetUserRequest {
   };
 }
 
+interface AuthenticatedRequest extends FastifyRequest {
+  user: {
+    userId: number;
+    email: string;
+  };
+}
+
 export async function createUserHandler(
   request: FastifyRequest<CreateUserRequest>,
   reply: FastifyReply
@@ -47,6 +54,26 @@ export async function getUserHandler(
   } catch (error) {
     return reply.status(500).send({
       message: error instanceof Error ? error.message : 'Failed to get user',
+    });
+  }
+}
+
+export async function getProfileHandler(
+  request: AuthenticatedRequest,
+  reply: FastifyReply
+) {
+  try {
+    const userId = request.user.userId;
+    const user = await getUserById(userId);
+
+    if (!user) {
+      return reply.status(404).send({ message: 'User not found' });
+    }
+
+    return reply.send(user);
+  } catch (error) {
+    return reply.status(500).send({
+      message: error instanceof Error ? error.message : 'Failed to get profile',
     });
   }
 }

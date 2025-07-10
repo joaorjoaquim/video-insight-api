@@ -142,12 +142,16 @@ export async function oauthCallbackController(
       { expiresIn: '15d' }
     );
 
-    return reply.send({
-      user,
-      token,
-    });
+    // Get frontend URL from environment or use default
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    // Redirect to frontend with token
+    return reply.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
   } catch (error) {
     request.log.error(error);
-    return reply.status(500).send({ message: 'OAuth callback failed' });
+    
+    // Redirect to frontend with error
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    return reply.redirect(`${frontendUrl}/auth/callback?error=oauth_failed`);
   }
 }

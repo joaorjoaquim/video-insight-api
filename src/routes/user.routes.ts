@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import {
   createUserHandler,
   getUserHandler,
+  getProfileHandler,
 } from '../controllers/user.controller';
 import {
   CreateUserBodySchema,
@@ -38,5 +39,22 @@ export async function userRoutes(fastify: FastifyInstance) {
       },
     },
     getUserHandler
+  );
+
+  // Rota para buscar perfil do usuário autenticado
+  fastify.get(
+    '/profile',
+    {
+      schema: {
+        response: {
+          200: UserResponseSchema,
+          401: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+      preHandler: [fastify.authenticate],
+    },
+    getProfileHandler
   );
 }
