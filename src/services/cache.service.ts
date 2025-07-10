@@ -14,14 +14,15 @@ export class CacheService {
       process.env.NODE_ENV === 'local' ||
       process.env.NODE_ENV === 'test';
 
-    this.isUpstash = isLocalEnvironment;
+    // Use Upstash in production/serverless, traditional Redis in development
+    this.isUpstash = !isLocalEnvironment;
 
     if (this.isUpstash) {
       this.client = new Redis({
         url: redisUrl || process.env.UPSTASH_REDIS_REST_URL || '',
         token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
       });
-      logger.info('Upstash Redis client initialized for local environment');
+      logger.info('Upstash Redis client initialized for production/serverless environment');
     } else {
       const defaultUrl =
         process.env.REDIS_URL && process.env.REDIS_URL.startsWith('redis://')
@@ -47,7 +48,7 @@ export class CacheService {
         logger.info('Successfully connected to Redis');
       });
 
-      logger.info('Traditional Redis client initialized for production');
+      logger.info('Traditional Redis client initialized for development');
     }
   }
 

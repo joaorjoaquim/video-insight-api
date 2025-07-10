@@ -13,11 +13,13 @@ import {
 } from './config/redis.config';
 
 export function buildServer() {
+  const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
+  
   const app = Fastify({
     logger: {
       level: 'info',
       transport:
-        process.env.NODE_ENV !== 'production'
+        process.env.NODE_ENV !== 'production' && !isVercel
           ? { target: 'pino-pretty' }
           : undefined,
     },

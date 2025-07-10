@@ -3,11 +3,14 @@ import 'dotenv/config';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
 
+// Create a simple logger configuration that works in all environments
 const loggerOptions: pino.LoggerOptions = {
   level: isProduction ? 'info' : 'debug',
-
-  ...(isDevelopment
+  
+  // Only use pino-pretty in local development, not in serverless environments
+  ...(isDevelopment && !isVercel
     ? {
         transport: {
           target: 'pino-pretty',
@@ -39,6 +42,31 @@ const loggerOptions: pino.LoggerOptions = {
   },
 };
 
-const logger = pino(loggerOptions);
+// Create logger with error handling for serverless environments
+let logger: pino.Logger;
+
+try {
+  // In Vercel, use a minimal configuration
+  if (isVercel) {
+    logger = pino({
+      level: 'info',
+      base: {
+        app: process.env.APP_NAME || 'api',
+        env: 'production',
+      },
+    });
+  } else {
+    logger = pino(loggerOptions);
+  }
+} catch (error) {
+  // Fallback logger for any environment
+  logger = pino({
+    level: 'info',
+    base: {
+      app: process.env.APP_NAME || 'api',
+      env: process.env.NODE_ENV || 'development',
+    },
+  });
+}
 
 export default logger;
