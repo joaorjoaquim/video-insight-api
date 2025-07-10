@@ -31,22 +31,32 @@ export class OAuthService {
   private static readonly DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
   private static readonly DISCORD_CLIENT_SECRET =
     process.env.DISCORD_CLIENT_SECRET;
-  private static readonly REDIRECT_URI =
-    process.env.OAUTH_REDIRECT_URI || 'http://localhost:5000/auth/callback';
+  private static readonly REDIRECT_BASE_URL =
+    process.env.OAUTH_REDIRECT_BASE_URL || 'https://api.summaryvideos.com/auth/callback';
 
   static getOAuthUrl(provider: OAuthProvider): string {
     const baseUrl = this.getProviderBaseUrl(provider);
     const clientId = this.getClientId(provider);
     const scope = this.getScope(provider);
+    const redirectUri = `${this.REDIRECT_BASE_URL}/${provider}`;
+
+    console.log('OAuth Configuration:');
+    console.log('Provider:', provider);
+    console.log('Client ID:', clientId);
+    console.log('Redirect URI:', redirectUri);
+    console.log('Scope:', scope);
 
     const params = new URLSearchParams({
       client_id: clientId,
-      redirect_uri: `${this.REDIRECT_URI}/${provider}`,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: scope,
     });
 
-    return `${baseUrl}?${params.toString()}`;
+    const oauthUrl = `${baseUrl}?${params.toString()}`;
+    console.log('Generated OAuth URL:', oauthUrl);
+    
+    return oauthUrl;
   }
 
   static async handleOAuthCallback(
@@ -124,7 +134,7 @@ export class OAuthService {
         client_secret: clientSecret,
         code: code,
         grant_type: 'authorization_code',
-        redirect_uri: `${this.REDIRECT_URI}/${provider}`,
+        redirect_uri: `${this.REDIRECT_BASE_URL}/${provider}`,
       }),
     });
 

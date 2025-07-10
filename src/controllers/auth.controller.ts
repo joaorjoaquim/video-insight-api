@@ -112,20 +112,35 @@ export async function oauthCallbackController(
   const { provider } = request.params as { provider: string };
   const { code } = request.query as { code: string };
 
+  console.log('OAuth Callback received:');
+  console.log('Provider:', provider);
+  console.log('Code exists:', !!code);
+  console.log('Query params:', request.query);
+
   try {
     if (!['google', 'discord'].includes(provider)) {
+      console.log('Unsupported provider:', provider);
       return reply.status(400).send({ message: 'Unsupported provider' });
     }
 
     if (!code) {
+      console.log('No authorization code provided');
       return reply.status(400).send({ message: 'Authorization code required' });
     }
+
+    console.log('Processing OAuth callback for provider:', provider);
 
     // Handle OAuth callback
     const userProfile = await OAuthService.handleOAuthCallback(
       provider as OAuthProvider,
       code
     );
+
+    console.log('User profile received:', {
+      email: userProfile.email,
+      name: userProfile.name,
+      providerId: userProfile.providerId
+    });
 
     // Create or update user
     const user = await createOrUpdateOAuthUser(
@@ -136,18 +151,25 @@ export async function oauthCallbackController(
       userProfile.avatarUrl
     );
 
+    console.log('User created/updated:', user.id);
+
     // Generate JWT token
     const token = await reply.jwtSign(
       { userId: user.id, email: user.email },
       { expiresIn: '15d' }
     );
 
+    console.log('JWT token generated');
+
     // Get frontend URL from environment or use default
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    console.log('Redirecting to frontend:', `${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
     
     // Redirect to frontend with token
     return reply.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
   } catch (error) {
+    console.error('OAuth callback error:', error);
     request.log.error(error);
     
     // Redirect to frontend with error
