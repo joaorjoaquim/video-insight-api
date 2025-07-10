@@ -11,12 +11,9 @@ const baseConfig: Partial<DataSourceOptions> = {
   entities: [__dirname + '/../entities/*.{js,ts}'],
   migrations: [__dirname + '/../migrations/*.{js,ts}'],
   synchronize: isTestEnv ? true : false,
-  ssl:
-    process.env.DB_SSL === 'true'
-      ? {
-          rejectUnauthorized: false,
-        }
-      : false,
+  ssl: {
+    rejectUnauthorized: false,
+  },
   extra: {
     max: Number(process.env.DB_MAX_CONNECTION) || 10,
     connectionTimeoutMillis: 60000,
@@ -30,19 +27,26 @@ function parseDatabaseUrl(url: string) {
     // Handle both postgres:// and postgresql:// protocols
     const withoutProtocol = url.replace(/^postgres(ql)?:\/\//, '');
 
+    // Split by @ to separate auth from server
     const [auth, serverPart] = withoutProtocol.split('@');
 
-    const [username, password] = auth.split(':');
+    // Handle password with special characters
+    const username = auth.split(':')[0];
+    const password = auth.split(':').slice(1).join(':');
 
     let host, port, database;
-    if (serverPart.includes(':')) {
-      const [hostPort, db] = serverPart.split('/');
+    
+    // Remove query parameters from serverPart
+    const [serverWithoutQuery] = serverPart.split('?');
+    
+    if (serverWithoutQuery.includes(':')) {
+      const [hostPort, db] = serverWithoutQuery.split('/');
       const [hostPart, portPart] = hostPort.split(':');
       host = hostPart;
       port = parseInt(portPart, 10);
       database = db;
     } else {
-      const [hostPart, db] = serverPart.split('/');
+      const [hostPart, db] = serverWithoutQuery.split('/');
       host = hostPart;
       port = 5432;
       database = db;
@@ -64,6 +68,11 @@ function parseDatabaseUrl(url: string) {
 
 // In development, use individual variables; in production, use full URLs
 const isDevelopment = process.env.NODE_ENV === 'development';
+
+console.log('Database configuration:');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('DATABASE_URL_WRITE exists:', !!process.env.DATABASE_URL_WRITE);
+console.log('DATABASE_URL_READ exists:', !!process.env.DATABASE_URL_READ);
 
 const writeConfig = isDevelopment
   ? {
@@ -91,6 +100,11 @@ const readConfig = isDevelopment
     ? { ...baseConfig, ...parseDatabaseUrl(process.env.DATABASE_URL_READ) }
     : writeConfig;
 
+console.log('Write config host:', writeConfig.host);
+console.log('Write config database:', writeConfig.database);
+console.log('Read config host:', readConfig.host);
+console.log('Read config database:', readConfig.database);
+
 export const WriteDataSource = new DataSource(writeConfig as DataSourceOptions);
 export const ReadDataSource = new DataSource(readConfig as DataSourceOptions);
 export const connectionSource = WriteDataSource;
@@ -106,6 +120,9 @@ async function connectWithRetry(
   while (retries < maxRetries) {
     try {
       if (!dataSource.isInitialized) {
+        console.log(`Attempting to connect to ${name} Database...`);
+        console.log(`Host: ${(dataSource.options as any).host}, Database: ${(dataSource.options as any).database}`);
+        
         await dataSource.initialize();
         logger.info(`${name} Database connected successfully`);
         return true;
@@ -113,6 +130,7 @@ async function connectWithRetry(
       return true;
     } catch (error) {
       retries++;
+      console.error(`${name} Database connection error:`, error.message);
       logger.warn(
         {
           error: {

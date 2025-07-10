@@ -10,6 +10,10 @@ if (process.env.VERCEL) {
 
 console.log('API handler initialized with NODE_ENV:', process.env.NODE_ENV);
 console.log('VERCEL environment:', process.env.VERCEL);
+console.log('VERCEL_ENV:', process.env.VERCEL_ENV);
+console.log('VERCEL_URL:', process.env.VERCEL_URL);
+console.log('DATABASE_URL_WRITE exists:', !!process.env.DATABASE_URL_WRITE);
+console.log('DATABASE_URL_READ exists:', !!process.env.DATABASE_URL_READ);
 
 let app: any = null;
 let isConnected = false;
