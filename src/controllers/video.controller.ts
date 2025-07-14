@@ -102,7 +102,13 @@ export async function getVideoHandler(
       return reply.status(403).send({ message: 'Access denied' });
     }
 
-    return reply.send(video);
+    // Merge video metadata with dashboard fields (if present)
+    let response = { ...video };
+    if (video.dashboard && typeof video.dashboard === 'object') {
+      response = { ...video, ...video.dashboard };
+    }
+
+    return reply.send(response);
   } catch (error) {
     return reply.status(500).send({
       message: error instanceof Error ? error.message : 'Failed to get video',
@@ -216,8 +222,14 @@ export async function checkVideoStatusHandler(
     // Get updated video data
     const updatedVideo = await getVideoById(parseInt(id));
 
+    // Merge video metadata with dashboard fields (if present)
+    let response = { ...updatedVideo };
+    if (updatedVideo.dashboard && typeof updatedVideo.dashboard === 'object') {
+      response = { ...updatedVideo, ...updatedVideo.dashboard };
+    }
+
     return reply.send({
-      video: updatedVideo,
+      ...response,
       status: statusResult.status,
       message: `Video status: ${statusResult.status}`,
     });

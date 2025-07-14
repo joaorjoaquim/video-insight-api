@@ -44,6 +44,9 @@ export class VideoEntity {
   @Column({ type: 'jsonb', nullable: true })
   insights: any;
 
+  @Column({ type: 'jsonb', nullable: true })
+  dashboard?: any;
+
   @Column({ type: 'text', default: 'pending' })
   status: 'pending' | 'downloaded' | 'transcribing' | 'completed' | 'failed';
 

@@ -164,7 +164,7 @@ export async function startTranscription(videoId: number): Promise<void> {
 // Step 3: Check transcription status and generate insights if complete
 export async function checkTranscriptionStatus(
   videoId: number
-): Promise<{ status: string; transcription?: string }> {
+): Promise<{ status: string; dashboard?: any }> {
   const video = await getVideoById(videoId);
   if (!video || !video.transcriptionId) {
     throw new Error('Video not found or transcription not started');
@@ -175,16 +175,15 @@ export async function checkTranscriptionStatus(
 
     if (transcription) {
       // Generate AI insights
-      const { summary, insights } = await generateAIInsights(transcription);
+      const dashboard = await generateAIInsights(transcription);
 
       await updateVideo(videoId, {
         transcription,
-        summary,
-        insights,
+        dashboard, // Save the full dashboard object
         status: 'completed',
       });
 
-      return { status: 'completed', transcription };
+      return { status: 'completed', dashboard };
     } else {
       // Check if it's still processing or failed
       const response = await fetch(
@@ -372,7 +371,7 @@ function splitTextIntoChunks(text: string, maxTokens: number = 500): string[] {
 
 async function generateAIInsights(
   transcription: string
-): Promise<{ summary: string; insights: any }> {
+): Promise<any> {
   try {
     // Step 1: Deduplication
     const deduplicatedText = removeDuplicateSegments(transcription);
@@ -398,18 +397,72 @@ async function generateAIInsights(
         );
       }
 
-      const prompt = `Você é um Assistente de Resumo de Transcrição de Vídeo.
+      const prompt = `You are an expert video summarizer and insight extractor. Given a video transcription, return a JSON object with the following structure, designed for a modern, interactive web dashboard. The output should be concise, well-structured, and visually rich for both list and mind map views.
 
-1. **(Deduplicação)** Analise o texto e remova trechos repetidos (>8 tokens) mantendo apenas a primeira ocorrência.
-2. **(Fidelidade)** Extraia somente informações explícitas no texto. Não adicione contexto externo.
-3. **(Verificação)** Liste em "topics" até 5 tópicos principais. Depois, para cada tópico, confirme sua correspondência exata com o original.
-4. **(Formato)** Retorne um JSON com:
-   {
-     "topics": [string],
-     "summary": string,
-     "warnings": [string]  // ex.: ["texto muito longo – resumido em blocos"]
-   }
-5. **(Limites)** Defina "max_tokens": 500 e pare ao encontrar "\\n\\n".
+Return ONLY valid JSON, no markdown or code blocks.
+
+### Required JSON Structure:
+{
+  "summary": {
+    "text": "A concise, readable summary of the video (2-4 paragraphs, no bullet points).",
+    "metrics": [
+      { "label": "Duration", "value": "12:45" },
+      { "label": "Main Topics", "value": "5" },
+      { "label": "Key Insights", "value": "12" },
+      { "label": "Complexity", "value": "Intermediate" }
+    ],
+    "topics": [
+      "Main topic 1",
+      "Main topic 2"
+    ]
+  },
+  "transcript": [
+    { "time": "00:00", "text": "First sentences..." }
+    // ...
+  ],
+  "insights": {
+    "chips": [
+      { "label": "15 insights extracted", "variant": "secondary" },
+      { "label": "5 main topics", "variant": "secondary" },
+      { "label": "3 key takeaways", "variant": "destructive" },
+      { "label": "87% confidence", "variant": "secondary" }
+    ],
+    "sections": [
+      {
+        "title": "Section Title",
+        "icon": "💻",
+        "items": [
+          { "text": "Insight text", "confidence": 95 },
+          { "text": "Another insight", "key": true }
+        ]
+      }
+      // ...
+    ]
+  },
+  "mindMap": {
+    "root": "Video Insights",
+    "branches": [
+      {
+        "label": "Branch 1",
+        "children": [
+          { "label": "Child 1" },
+          { "label": "Child 2" }
+        ]
+      }
+      // ...
+    ]
+  }
+}
+
+- summary.text: A readable, human-like summary (not a list).
+- summary.metrics: Always include duration, main topics, key insights, and complexity.
+- summary.topics: Main topics as strings.
+- transcript: Array of {time, text} blocks, 1-3 sentences each, covering the whole video.
+- insights.chips: Short badges for quick stats.
+- insights.sections: Each with a title, emoji icon, and insight items. Items can have confidence, key, or quote.
+- mindMap: Hierarchical structure for mind map view (root, branches, children).
+
+Return only the JSON object, no extra text.
 
 Texto para análise:
 ${chunk}`;
@@ -420,7 +473,7 @@ ${chunk}`;
           {
             role: 'system',
             content:
-              'Você é um assistente especializado em análise de transcrições de vídeo. Sempre retorne JSON válido.',
+              'Você é um assistente especializado em análise de transcrições de vídeo. Sempre retorne JSON válido e completo.',
           },
           {
             role: 'user',
@@ -428,8 +481,8 @@ ${chunk}`;
           },
         ],
         temperature: 0.2,
-        max_tokens: 500,
-        stop: ['\n\n'],
+        max_tokens: 2000, // Increased from 500 to ensure complete response
+        // Removed stop parameter to prevent truncation
       });
 
       const response = completion.choices[0]?.message?.content;
@@ -438,13 +491,60 @@ ${chunk}`;
         throw new Error('Failed to generate AI insights for chunk');
       }
 
+      // Check if response is complete JSON
+      const trimmedResponse = response.trim();
+      if (!trimmedResponse.endsWith('}')) {
+        console.error('Incomplete JSON response detected');
+        console.error('Response ends with:', trimmedResponse.slice(-50));
+        throw new Error('Incomplete JSON response from OpenAI');
+      }
+
       try {
         const result = JSON.parse(response);
+        console.log('OpenAI response parsed:', JSON.stringify(result, null, 2));
+        
+        // Check if this is already a dashboard object
+        if (result.summary && typeof result.summary === 'object' && result.summary.text) {
+          console.log('Returning dashboard object directly');
+          // This is already a dashboard object, return it directly
+          return result;
+        }
+        
+        // Check if this has the full dashboard structure
+        if (result.summary && result.transcript && result.insights && result.mindMap) {
+          console.log('Returning full dashboard structure directly');
+          return result;
+        }
+        
+        // If it's the old format, store it for consolidation
         allResults.push(result);
         if (result.warnings) {
           allWarnings.push(...result.warnings);
         }
       } catch (parseError) {
+        console.error('JSON parsing error:', parseError);
+        console.error('Raw response:', response);
+        console.error('Response length:', response.length);
+        
+        // Check if the response is truncated
+        if (response.includes('"insights"') && response.includes('"mindMap"')) {
+          console.log('Response appears to be truncated, attempting to fix...');
+          // Try to find the end of the JSON
+          const lastBrace = response.lastIndexOf('}');
+          if (lastBrace > 0) {
+            const truncatedResponse = response.substring(0, lastBrace + 1);
+            try {
+              const fixedResult = JSON.parse(truncatedResponse);
+              console.log('Successfully parsed truncated response');
+              if (fixedResult.summary && fixedResult.transcript && fixedResult.insights && fixedResult.mindMap) {
+                return fixedResult;
+              }
+            } catch (fixError) {
+              console.error('Failed to fix truncated response:', fixError);
+            }
+          }
+        }
+        
         // If JSON parsing fails, create a basic result
         allResults.push({
           topics: ['Análise de transcrição'],
@@ -453,6 +553,10 @@ ${chunk}`;
         });
       }
     }
+
+    console.log('Number of chunks:', chunks.length);
+    console.log('Number of results:', allResults.length);
+    console.log('All results:', JSON.stringify(allResults, null, 2));
 
     // Step 3: Consolidate results
     let consolidatedSummary = '';
@@ -468,18 +572,81 @@ ${chunk}`;
       }
     }
 
+    // If we have only one chunk, return the parsed result directly
+    if (chunks.length === 1 && allResults.length === 1) {
+      const result = allResults[0];
+      console.log('Single chunk result:', JSON.stringify(result, null, 2));
+      
+      // If the result is already a dashboard object, return it
+      if (result.summary && typeof result.summary === 'object' && result.summary.text) {
+        console.log('Returning single chunk dashboard object');
+        return result;
+      }
+      
+      // If the result has the full dashboard structure (summary, transcript, insights, mindMap)
+      if (result.summary && result.transcript && result.insights && result.mindMap) {
+        console.log('Returning full dashboard structure');
+        return result;
+      }
+      
+      // If it's the old format, convert to dashboard format
+      if (result.summary && typeof result.summary === 'string') {
+        console.log('Converting old format to dashboard format');
+        return {
+          summary: {
+            text: result.summary,
+            metrics: [
+              { label: "Duration", value: "N/A" },
+              { label: "Main Topics", value: allTopics.size.toString() },
+              { label: "Key Insights", value: "N/A" },
+              { label: "Complexity", value: "Intermediate" }
+            ],
+            topics: Array.from(allTopics)
+          },
+          transcript: [
+            { time: "00:00", text: "Transcript processing completed" }
+          ],
+          insights: {
+            chips: [
+              { label: `${allTopics.size} topics extracted`, variant: "secondary" },
+              { label: "Processing completed", variant: "secondary" }
+            ],
+            sections: [
+              {
+                title: "Key Insights",
+                icon: "💡",
+                items: [
+                  { text: "Video analysis completed", confidence: 90 }
+                ]
+              }
+            ]
+          },
+          mindMap: {
+            root: "Video Insights",
+            branches: Array.from(allTopics).map(topic => ({
+              label: topic,
+              children: []
+            }))
+          }
+        };
+      }
+    }
+
     // If we have multiple chunks, create a final consolidation
     if (chunks.length > 1) {
-      const consolidationPrompt = `Consolide os seguintes resultados em um único resumo conciso:
+      const consolidationPrompt = `Consolide os seguintes resultados em um único resumo conciso, seguindo o formato JSON abaixo para dashboard e mind map. Retorne apenas o JSON, sem markdown ou texto extra.
 
-${allResults.map((r, i) => `Bloco ${i + 1}: ${r.summary}`).join('\n')}
-
-Retorne apenas um JSON:
+### Required JSON Structure:
 {
-  "topics": [string],
-  "summary": string,
-  "warnings": [string]
-}`;
+  "summary": { ... },
+  "transcript": [ ... ],
+  "insights": { ... },
+  "mindMap": { ... }
+}
+
+Resultados para consolidar:
+${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
+`;
 
       const consolidationCompletion = await openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
@@ -504,46 +671,91 @@ Retorne apenas um JSON:
       if (consolidationResponse) {
         try {
           const consolidated = JSON.parse(consolidationResponse);
-          return {
-            summary: consolidated.summary || consolidatedSummary.trim(),
-            insights: {
-              topics: consolidated.topics || Array.from(allTopics),
-              summary: consolidated.summary || consolidatedSummary.trim(),
-              warnings: consolidated.warnings || consolidatedWarnings,
-              originalTokenCount: tokenCount,
-              processedChunks: chunks.length,
-              extractedAt: new Date().toISOString(),
-            },
-          };
+          return consolidated; // Return the full dashboard object
         } catch {
           // Fallback to manual consolidation
         }
       }
     }
 
-    // Return consolidated results
+    // Return consolidated results as dashboard object
     return {
-      summary: consolidatedSummary.trim(),
-      insights: {
-        topics: Array.from(allTopics),
-        summary: consolidatedSummary.trim(),
-        warnings: consolidatedWarnings,
-        originalTokenCount: tokenCount,
-        processedChunks: chunks.length,
-        extractedAt: new Date().toISOString(),
+      summary: {
+        text: consolidatedSummary.trim(),
+        metrics: [
+          { label: "Duration", value: "N/A" },
+          { label: "Main Topics", value: allTopics.size.toString() },
+          { label: "Key Insights", value: "N/A" },
+          { label: "Complexity", value: "Intermediate" }
+        ],
+        topics: Array.from(allTopics)
       },
+      transcript: [
+        { time: "00:00", text: "Transcript processing completed" }
+      ],
+      insights: {
+        chips: [
+          { label: `${allTopics.size} topics extracted`, variant: "secondary" },
+          { label: "Processing completed", variant: "secondary" }
+        ],
+        sections: [
+          {
+            title: "Key Insights",
+            icon: "💡",
+            items: [
+              { text: "Video analysis completed", confidence: 90 }
+            ]
+          }
+        ]
+      },
+      mindMap: {
+        root: "Video Insights",
+        branches: Array.from(allTopics).map(topic => ({
+          label: topic,
+          children: []
+        }))
+      }
     };
   } catch (error) {
-    // Fallback to simple summary
+    // Fallback to simple dashboard structure
     return {
-      summary: 'Análise de transcrição disponível',
-      insights: {
-        topics: ['Transcrição processada'],
-        summary: 'Análise de transcrição disponível',
-        warnings: ['Erro na análise detalhada - usando resumo básico'],
-        error: error instanceof Error ? error.message : 'Unknown error',
-        extractedAt: new Date().toISOString(),
+      summary: {
+        text: "Análise de transcrição disponível",
+        metrics: [
+          { label: "Duration", value: "N/A" },
+          { label: "Main Topics", value: "1" },
+          { label: "Key Insights", value: "1" },
+          { label: "Complexity", value: "Basic" }
+        ],
+        topics: ["Transcrição processada"]
       },
+      transcript: [
+        { time: "00:00", text: "Transcript processing completed" }
+      ],
+      insights: {
+        chips: [
+          { label: "1 topic extracted", variant: "secondary" },
+          { label: "Basic analysis", variant: "secondary" }
+        ],
+        sections: [
+          {
+            title: "Processing Status",
+            icon: "⚠️",
+            items: [
+              { text: "Erro na análise detalhada - usando resumo básico", confidence: 50 }
+            ]
+          }
+        ]
+      },
+      mindMap: {
+        root: "Video Insights",
+        branches: [
+          {
+            label: "Transcrição processada",
+            children: []
+          }
+        ]
+      }
     };
   }
 }
