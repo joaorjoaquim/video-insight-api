@@ -58,7 +58,7 @@ export const VideoResponseSchema = Type.Object({
   ),
   status: Type.String({
     example: 'completed',
-    enum: ['pending', 'processing', 'completed', 'failed'],
+    enum: ['pending', 'downloaded', 'transcribing', 'completed', 'failed'],
   }),
   errorMessage: Type.Optional(
     Type.String({ example: 'Failed to download video' })
