@@ -110,10 +110,21 @@ export async function getVideoHandler(
       return reply.status(403).send({ message: 'Access denied' });
     }
 
-    // Merge video metadata with dashboard fields (if present)
-    let response = { ...video };
-    if (video.dashboard && typeof video.dashboard === 'object') {
-      response = { ...video, ...video.dashboard };
+    // For GET /videos/:id - return full dashboard data when completed
+    let response = { ...video } as any;
+    if (
+      video.dashboard &&
+      typeof video.dashboard === 'object' &&
+      video.status === 'completed'
+    ) {
+      // Explicitly map dashboard fields to avoid conflicts
+      response = {
+        ...video,
+        summary: video.dashboard.summary,
+        insights: video.dashboard.insights,
+        transcript: video.dashboard.transcript,
+        mindMap: video.dashboard.mindMap,
+      };
     }
 
     return reply.send(response);
@@ -230,11 +241,8 @@ export async function checkVideoStatusHandler(
     // Get updated video data
     const updatedVideo = await getVideoById(parseInt(id));
 
-    // Merge video metadata with dashboard fields (if present)
-    let response = { ...updatedVideo };
-    if (updatedVideo.dashboard && typeof updatedVideo.dashboard === 'object') {
-      response = { ...updatedVideo, ...updatedVideo.dashboard };
-    }
+    // For GET /videos/:id/status - return basic info only (no dashboard data)
+    let response = { ...updatedVideo } as any;
 
     return reply.send({
       ...response,
