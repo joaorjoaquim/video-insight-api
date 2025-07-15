@@ -1,6 +1,8 @@
 import { VideoRepository } from '../repositories/video.repository';
 import { VideoEntity } from '../entities/Video';
 import { OpenAI } from 'openai';
+import { spendCredits, refundCredits } from './credit.service';
+import { CreditTransactionRepository } from '../repositories/credit-transaction.repository';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -44,6 +46,46 @@ export async function createVideo(
 ): Promise<VideoEntity> {
   const video = VideoRepository.create(videoData);
   return await VideoRepository.save(video);
+}
+
+export async function createVideoWithCredits(
+  videoData: Partial<VideoEntity>,
+  userId: number
+): Promise<{ success: boolean; video?: VideoEntity; message?: string }> {
+  // Calculate estimated credits based on video URL (rough estimation)
+  // We'll use a conservative estimate of 5 credits initially
+  const estimatedCredits = 5;
+  
+  // Check if user has enough credits
+  const creditSpent = await spendCredits({
+    userId,
+    amount: estimatedCredits,
+    description: 'Video submission (estimated)',
+    referenceType: 'video_submission_estimated',
+  });
+
+  if (!creditSpent) {
+    return { success: false, message: 'Insufficient credits' };
+  }
+
+  try {
+    const video = await createVideo({
+      ...videoData,
+      creditsCost: estimatedCredits, // Track estimated credits spent
+    });
+
+    return { success: true, video };
+  } catch (error) {
+    // If video creation fails, refund the credits
+    await refundCredits({
+      userId,
+      amount: estimatedCredits,
+      description: 'Refund for failed video creation',
+      referenceType: 'video_submission_refund',
+    });
+
+    throw error;
+  }
 }
 
 export async function getVideoById(id: number): Promise<VideoEntity | null> {
@@ -98,8 +140,28 @@ export async function updateVideo(
   id: number,
   updateData: Partial<VideoEntity>
 ): Promise<VideoEntity | null> {
-  await VideoRepository.update(id, updateData);
-  return await getVideoById(id);
+  // Add retry logic for database connection issues
+  const maxRetries = 3;
+  let lastError: any;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await VideoRepository.update(id, updateData);
+      return await getVideoById(id);
+    } catch (error) {
+      lastError = error;
+      console.error(`Database update attempt ${attempt} failed:`, error.message);
+      
+      if (attempt < maxRetries) {
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        console.log(`Retrying database update (attempt ${attempt + 1}/${maxRetries})`);
+      }
+    }
+  }
+
+  // If all retries failed, throw the last error
+  throw lastError;
 }
 
 // Step 1: Start video download
@@ -129,6 +191,27 @@ export async function startVideoDownload(videoId: number): Promise<void> {
       status: 'failed',
       errorMessage: error instanceof Error ? error.message : 'Download failed',
     });
+
+    // Refund initial estimated credits for failed download
+    const initialTransaction = await CreditTransactionRepository.findOne({
+      where: {
+        userId: video.userId,
+        referenceId: videoId.toString(),
+        referenceType: 'video_submission_estimated'
+      },
+      order: { createdAt: 'DESC' }
+    });
+
+    if (initialTransaction) {
+      await refundCredits({
+        userId: video.userId,
+        amount: Math.abs(initialTransaction.amount),
+        description: 'Refund for failed video download',
+        referenceId: videoId.toString(),
+        referenceType: 'video_download_refund',
+      });
+    }
+
     throw error;
   }
 }
@@ -157,6 +240,27 @@ export async function startTranscription(videoId: number): Promise<void> {
       errorMessage:
         error instanceof Error ? error.message : 'Transcription request failed',
     });
+
+    // Refund initial estimated credits for failed transcription
+    const initialTransaction = await CreditTransactionRepository.findOne({
+      where: {
+        userId: video.userId,
+        referenceId: videoId.toString(),
+        referenceType: 'video_submission_estimated'
+      },
+      order: { createdAt: 'DESC' }
+    });
+
+    if (initialTransaction) {
+      await refundCredits({
+        userId: video.userId,
+        amount: Math.abs(initialTransaction.amount),
+        description: 'Refund for failed transcription',
+        referenceId: videoId.toString(),
+        referenceType: 'video_transcription_refund',
+      });
+    }
+
     throw error;
   }
 }
@@ -174,16 +278,96 @@ export async function checkTranscriptionStatus(
     const transcription = await pollTranscriptionStatus(video.transcriptionId);
 
     if (transcription) {
-      // Generate AI insights
-      const dashboard = await generateAIInsights(transcription);
+      // Track tokens used and spend credits
+      let totalTokensUsed = 0;
+      let dashboard: any;
 
-      await updateVideo(videoId, {
-        transcription,
-        dashboard, // Save the full dashboard object
-        status: 'completed',
-      });
+      try {
+        // Generate AI insights (original function)
+        const { dashboard: generatedDashboard, tokensUsed } = await generateAIInsights(transcription);
+        
+        // Use actual tokens from OpenAI API
+        totalTokensUsed = tokensUsed;
+        
+        // Calculate final credit cost based on actual tokens used
+        const finalCreditsCost = calculateCreditsFromTokens(totalTokensUsed);
+        
+        // Update the initial estimated transaction with actual values
+        // Find the initial transaction for this video
+        const initialTransaction = await CreditTransactionRepository.findOne({
+          where: {
+            userId: video.userId,
+            referenceId: videoId.toString(),
+            referenceType: 'video_submission_estimated'
+          },
+          order: { createdAt: 'DESC' }
+        });
 
-      return { status: 'completed', dashboard };
+        if (initialTransaction) {
+          // Update the initial transaction with actual values
+          await CreditTransactionRepository.update(initialTransaction.id, {
+            amount: -finalCreditsCost, // Update to actual cost
+            description: `AI video analysis (${totalTokensUsed} tokens)`,
+            referenceType: 'video_ai_processing',
+            tokensUsed: totalTokensUsed
+          });
+        } else {
+          // Fallback: create new transaction if initial not found
+          const creditSpent = await spendCredits({
+            userId: video.userId,
+            amount: finalCreditsCost,
+            description: `AI video analysis (${totalTokensUsed} tokens)`,
+            referenceId: videoId.toString(),
+            referenceType: 'video_ai_processing',
+            tokensUsed: totalTokensUsed,
+          });
+
+          if (!creditSpent) {
+            // User doesn't have enough credits
+            await updateVideo(videoId, {
+              status: 'failed',
+              errorMessage: 'Insufficient credits for AI processing',
+            });
+            return { status: 'failed' };
+          }
+        }
+
+        await updateVideo(videoId, {
+          transcription,
+          dashboard: generatedDashboard, // Save the full dashboard object
+          tokensUsed: totalTokensUsed,
+          creditsCost: finalCreditsCost,
+          status: 'completed',
+        });
+
+        return { status: 'completed', dashboard: generatedDashboard };
+      } catch (aiError) {
+        // If AI processing fails, refund the initial estimated credits
+        const initialTransaction = await CreditTransactionRepository.findOne({
+          where: {
+            userId: video.userId,
+            referenceId: videoId.toString(),
+            referenceType: 'video_submission_estimated'
+          },
+          order: { createdAt: 'DESC' }
+        });
+
+        if (initialTransaction) {
+          await refundCredits({
+            userId: video.userId,
+            amount: Math.abs(initialTransaction.amount), // Refund the estimated amount
+            description: 'Refund for failed AI processing',
+            referenceId: videoId.toString(),
+            referenceType: 'video_ai_processing_refund',
+          });
+        }
+
+        await updateVideo(videoId, {
+          status: 'failed',
+          errorMessage: aiError instanceof Error ? aiError.message : 'AI processing failed',
+        });
+        throw aiError;
+      }
     } else {
       // Check if it's still processing or failed
       const response = await fetch(
@@ -251,6 +435,27 @@ export async function processVideo(videoId: number): Promise<void> {
       status: 'failed',
       errorMessage: error instanceof Error ? error.message : 'Unknown error',
     });
+
+    // Refund initial estimated credits for any processing failure
+    const initialTransaction = await CreditTransactionRepository.findOne({
+      where: {
+        userId: video.userId,
+        referenceId: videoId.toString(),
+        referenceType: 'video_submission_estimated'
+      },
+      order: { createdAt: 'DESC' }
+    });
+
+    if (initialTransaction) {
+      await refundCredits({
+        userId: video.userId,
+        amount: Math.abs(initialTransaction.amount),
+        description: 'Refund for failed video processing',
+        referenceId: videoId.toString(),
+        referenceType: 'video_processing_refund',
+      });
+    }
+
     throw error;
   }
 }
@@ -369,9 +574,28 @@ function splitTextIntoChunks(text: string, maxTokens: number = 500): string[] {
   return chunks;
 }
 
+// Calculate credits based on tokens used
+function calculateCreditsFromTokens(tokensUsed: number): number {
+  // Base cost for video download and transcription services
+  const baseServiceCost = 2; // 2 credits for download + transcription
+  
+  // OpenAI token cost (proportional to tokens used)
+  // Using a reasonable rate: 1 credit per 500 tokens
+  const tokenCredits = Math.ceil(tokensUsed / 500);
+  
+  // Total credits (base service cost + token cost)
+  const totalCredits = baseServiceCost + tokenCredits;
+  
+  // Apply min/max constraints
+  const minCredits = 3;
+  const maxCredits = 10;
+  
+  return Math.max(minCredits, Math.min(maxCredits, totalCredits));
+}
+
 async function generateAIInsights(
   transcription: string
-): Promise<any> {
+): Promise<{ dashboard: any; tokensUsed: number }> {
   try {
     // Step 1: Deduplication
     const deduplicatedText = removeDuplicateSegments(transcription);
@@ -385,6 +609,7 @@ async function generateAIInsights(
 
     const allResults: any[] = [];
     const allWarnings: string[] = [];
+    let totalTokensUsed = 0;
 
     // Process each chunk
     for (let i = 0; i < chunks.length; i++) {
@@ -485,6 +710,9 @@ ${chunk}`;
         // Removed stop parameter to prevent truncation
       });
 
+      // Track actual tokens used from OpenAI response
+      totalTokensUsed += completion.usage?.total_tokens || 0;
+
       const response = completion.choices[0]?.message?.content;
 
       if (!response) {
@@ -507,13 +735,13 @@ ${chunk}`;
         if (result.summary && typeof result.summary === 'object' && result.summary.text) {
           console.log('Returning dashboard object directly');
           // This is already a dashboard object, return it directly
-          return result;
+          return { dashboard: result, tokensUsed: totalTokensUsed };
         }
         
         // Check if this has the full dashboard structure
         if (result.summary && result.transcript && result.insights && result.mindMap) {
           console.log('Returning full dashboard structure directly');
-          return result;
+          return { dashboard: result, tokensUsed: totalTokensUsed };
         }
         
         // If it's the old format, store it for consolidation
@@ -537,7 +765,7 @@ ${chunk}`;
               const fixedResult = JSON.parse(truncatedResponse);
               console.log('Successfully parsed truncated response');
               if (fixedResult.summary && fixedResult.transcript && fixedResult.insights && fixedResult.mindMap) {
-                return fixedResult;
+                return { dashboard: fixedResult, tokensUsed: totalTokensUsed };
               }
             } catch (fixError) {
               console.error('Failed to fix truncated response:', fixError);
@@ -580,54 +808,57 @@ ${chunk}`;
       // If the result is already a dashboard object, return it
       if (result.summary && typeof result.summary === 'object' && result.summary.text) {
         console.log('Returning single chunk dashboard object');
-        return result;
+        return { dashboard: result, tokensUsed: totalTokensUsed };
       }
       
       // If the result has the full dashboard structure (summary, transcript, insights, mindMap)
       if (result.summary && result.transcript && result.insights && result.mindMap) {
         console.log('Returning full dashboard structure');
-        return result;
+        return { dashboard: result, tokensUsed: totalTokensUsed };
       }
       
       // If it's the old format, convert to dashboard format
       if (result.summary && typeof result.summary === 'string') {
         console.log('Converting old format to dashboard format');
         return {
-          summary: {
-            text: result.summary,
-            metrics: [
-              { label: "Duration", value: "N/A" },
-              { label: "Main Topics", value: allTopics.size.toString() },
-              { label: "Key Insights", value: "N/A" },
-              { label: "Complexity", value: "Intermediate" }
+          dashboard: {
+            summary: {
+              text: result.summary,
+              metrics: [
+                { label: "Duration", value: "N/A" },
+                { label: "Main Topics", value: allTopics.size.toString() },
+                { label: "Key Insights", value: "N/A" },
+                { label: "Complexity", value: "Intermediate" }
+              ],
+              topics: Array.from(allTopics)
+            },
+            transcript: [
+              { time: "00:00", text: "Transcript processing completed" }
             ],
-            topics: Array.from(allTopics)
+            insights: {
+              chips: [
+                { label: `${allTopics.size} topics extracted`, variant: "secondary" },
+                { label: "Processing completed", variant: "secondary" }
+              ],
+              sections: [
+                {
+                  title: "Key Insights",
+                  icon: "💡",
+                  items: [
+                    { text: "Video analysis completed", confidence: 90 }
+                  ]
+                }
+              ]
+            },
+            mindMap: {
+              root: "Video Insights",
+              branches: Array.from(allTopics).map(topic => ({
+                label: topic,
+                children: []
+              }))
+            }
           },
-          transcript: [
-            { time: "00:00", text: "Transcript processing completed" }
-          ],
-          insights: {
-            chips: [
-              { label: `${allTopics.size} topics extracted`, variant: "secondary" },
-              { label: "Processing completed", variant: "secondary" }
-            ],
-            sections: [
-              {
-                title: "Key Insights",
-                icon: "💡",
-                items: [
-                  { text: "Video analysis completed", confidence: 90 }
-                ]
-              }
-            ]
-          },
-          mindMap: {
-            root: "Video Insights",
-            branches: Array.from(allTopics).map(topic => ({
-              label: topic,
-              children: []
-            }))
-          }
+          tokensUsed: totalTokensUsed
         };
       }
     }
@@ -665,13 +896,16 @@ ${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
         max_tokens: 300,
       });
 
+      // Add consolidation tokens to total
+      totalTokensUsed += consolidationCompletion.usage?.total_tokens || 0;
+
       const consolidationResponse =
         consolidationCompletion.choices[0]?.message?.content;
 
       if (consolidationResponse) {
         try {
           const consolidated = JSON.parse(consolidationResponse);
-          return consolidated; // Return the full dashboard object
+          return { dashboard: consolidated, tokensUsed: totalTokensUsed }; // Return the full dashboard object
         } catch {
           // Fallback to manual consolidation
         }
@@ -680,82 +914,88 @@ ${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
 
     // Return consolidated results as dashboard object
     return {
-      summary: {
-        text: consolidatedSummary.trim(),
-        metrics: [
-          { label: "Duration", value: "N/A" },
-          { label: "Main Topics", value: allTopics.size.toString() },
-          { label: "Key Insights", value: "N/A" },
-          { label: "Complexity", value: "Intermediate" }
+      dashboard: {
+        summary: {
+          text: consolidatedSummary.trim(),
+          metrics: [
+            { label: "Duration", value: "N/A" },
+            { label: "Main Topics", value: allTopics.size.toString() },
+            { label: "Key Insights", value: "N/A" },
+            { label: "Complexity", value: "Intermediate" }
+          ],
+          topics: Array.from(allTopics)
+        },
+        transcript: [
+          { time: "00:00", text: "Transcript processing completed" }
         ],
-        topics: Array.from(allTopics)
+        insights: {
+          chips: [
+            { label: `${allTopics.size} topics extracted`, variant: "secondary" },
+            { label: "Processing completed", variant: "secondary" }
+          ],
+          sections: [
+            {
+              title: "Key Insights",
+              icon: "💡",
+              items: [
+                { text: "Video analysis completed", confidence: 90 }
+              ]
+            }
+          ]
+        },
+        mindMap: {
+          root: "Video Insights",
+          branches: Array.from(allTopics).map(topic => ({
+            label: topic,
+            children: []
+          }))
+        }
       },
-      transcript: [
-        { time: "00:00", text: "Transcript processing completed" }
-      ],
-      insights: {
-        chips: [
-          { label: `${allTopics.size} topics extracted`, variant: "secondary" },
-          { label: "Processing completed", variant: "secondary" }
-        ],
-        sections: [
-          {
-            title: "Key Insights",
-            icon: "💡",
-            items: [
-              { text: "Video analysis completed", confidence: 90 }
-            ]
-          }
-        ]
-      },
-      mindMap: {
-        root: "Video Insights",
-        branches: Array.from(allTopics).map(topic => ({
-          label: topic,
-          children: []
-        }))
-      }
+      tokensUsed: totalTokensUsed
     };
   } catch (error) {
     // Fallback to simple dashboard structure
     return {
-      summary: {
-        text: "Análise de transcrição disponível",
-        metrics: [
-          { label: "Duration", value: "N/A" },
-          { label: "Main Topics", value: "1" },
-          { label: "Key Insights", value: "1" },
-          { label: "Complexity", value: "Basic" }
+      dashboard: {
+        summary: {
+          text: "Análise de transcrição disponível",
+          metrics: [
+            { label: "Duration", value: "N/A" },
+            { label: "Main Topics", value: "1" },
+            { label: "Key Insights", value: "1" },
+            { label: "Complexity", value: "Basic" }
+          ],
+          topics: ["Transcrição processada"]
+        },
+        transcript: [
+          { time: "00:00", text: "Transcript processing completed" }
         ],
-        topics: ["Transcrição processada"]
+        insights: {
+          chips: [
+            { label: "1 topic extracted", variant: "secondary" },
+            { label: "Basic analysis", variant: "secondary" }
+          ],
+          sections: [
+            {
+              title: "Processing Status",
+              icon: "⚠️",
+              items: [
+                { text: "Erro na análise detalhada - usando resumo básico", confidence: 50 }
+              ]
+            }
+          ]
+        },
+        mindMap: {
+          root: "Video Insights",
+          branches: [
+            {
+              label: "Transcrição processada",
+              children: []
+            }
+          ]
+        }
       },
-      transcript: [
-        { time: "00:00", text: "Transcript processing completed" }
-      ],
-      insights: {
-        chips: [
-          { label: "1 topic extracted", variant: "secondary" },
-          { label: "Basic analysis", variant: "secondary" }
-        ],
-        sections: [
-          {
-            title: "Processing Status",
-            icon: "⚠️",
-            items: [
-              { text: "Erro na análise detalhada - usando resumo básico", confidence: 50 }
-            ]
-          }
-        ]
-      },
-      mindMap: {
-        root: "Video Insights",
-        branches: [
-          {
-            label: "Transcrição processada",
-            children: []
-          }
-        ]
-      }
+      tokensUsed: 0 // No tokens used in fallback
     };
   }
 }

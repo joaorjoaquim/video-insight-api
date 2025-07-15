@@ -20,6 +20,9 @@ export class UserEntity {
   @Column({ type: 'text', nullable: true })
   password: string;
 
+  @Column({ type: 'int', default: 100 })
+  credits: number;
+
   @Column({ type: 'text', nullable: true })
   name: string;
 

@@ -38,14 +38,14 @@ export class VideoEntity {
   @Column({ type: 'text', nullable: true })
   transcription: string;
 
-  @Column({ type: 'text', nullable: true })
-  summary: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  insights: any;
-
   @Column({ type: 'jsonb', nullable: true })
   dashboard?: any;
+
+  @Column({ type: 'int', nullable: true })
+  tokensUsed?: number;
+
+  @Column({ type: 'int', nullable: true })
+  creditsCost?: number;
 
   @Column({ type: 'text', default: 'pending' })
   status: 'pending' | 'downloaded' | 'transcribing' | 'completed' | 'failed';

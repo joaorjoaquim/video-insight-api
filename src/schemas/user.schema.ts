@@ -38,6 +38,10 @@ export const UserResponseSchema = Type.Object({
   id: Type.Number({ example: 1 }),
   name: Type.String({ example: 'John Doe' }),
   email: Type.String({ format: 'email', example: 'user@example.com' }),
+  credits: Type.Number({ example: 100, description: 'User credit balance' }),
+  avatarUrl: Type.Optional(Type.String({ example: 'https://example.com/avatar.jpg' })),
+  provider: Type.Optional(Type.String({ example: 'google' })),
+  providerId: Type.Optional(Type.String({ example: '123456789' })),
   createdAt: Type.String({
     format: 'date-time',
     example: '2024-01-01T00:00:00.000Z',

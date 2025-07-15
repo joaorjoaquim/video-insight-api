@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import {
-  createVideo,
+  createVideoWithCredits,
   getVideoById,
   getVideosByUserId,
   getVideosCountByUserId,
@@ -60,7 +60,15 @@ export async function createVideoHandler(
       status: 'pending' as const,
     };
 
-    const video = await createVideo(videoData);
+    const result = await createVideoWithCredits(videoData, userId);
+
+    if (!result.success) {
+      return reply.status(400).send({
+        message: result.message || 'Failed to create video',
+      });
+    }
+
+    const video = result.video!;
 
     // Start processing in background
     startVideoDownload(video.id).catch((error) => {

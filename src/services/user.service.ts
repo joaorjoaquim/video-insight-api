@@ -11,7 +11,13 @@ export async function createUser(
     userData.password = await bcrypt.hash(userData.password, saltRounds);
   }
 
-  const user = UserRepository.create(userData);
+  // Set default credits for new users
+  const userWithDefaults = {
+    ...userData,
+    credits: 100, // Default balance for new users
+  };
+
+  const user = UserRepository.create(userWithDefaults);
   const savedUser = await UserRepository.save(user);
 
   const { password, ...userWithoutPassword } = savedUser;
@@ -43,7 +49,7 @@ export async function createOrUpdateOAuthUser(
       user.avatarUrl = avatarUrl;
       user.name = name; // Update name from OAuth
     } else {
-      // Create new OAuth user
+      // Create new OAuth user with default credits
       user = UserRepository.create({
         email,
         name,
@@ -51,6 +57,7 @@ export async function createOrUpdateOAuthUser(
         provider,
         providerId,
         password: null, // OAuth users don't have passwords
+        credits: 100, // Default balance for new OAuth users
       });
     }
   } else {
