@@ -32,6 +32,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
           500: ErrorResponseSchema,
         },
       },
+      preHandler: [fastify.authenticate],
     },
     getUserCreditsHandler
   );
@@ -66,4 +67,4 @@ export async function creditRoutes(fastify: FastifyInstance) {
     },
     deductCreditsHandler
   );
-} 
+}

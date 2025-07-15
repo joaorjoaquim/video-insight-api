@@ -34,10 +34,6 @@ export async function getUserCreditsHandler(
     const userId = (request.user as any)?.userId;
     const { limit, offset } = request.query;
 
-    if (!userId) {
-      return reply.status(401).send({ message: 'Authentication required' });
-    }
-
     // Validate and sanitize pagination parameters
     const sanitizedLimit = Math.min(
       limit ? parseInt(limit) || MAX_PAGINATION_LIMIT : MAX_PAGINATION_LIMIT,
@@ -232,4 +228,4 @@ export async function deductCreditsHandler(
       success: false,
     });
   }
-} 
+}
