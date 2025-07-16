@@ -1,12 +1,7 @@
----
-description:
-globs:
-alwaysApply: true
----
 
 # Backend - Project Overview
 
-This is a **Fastify-based API backend** called video-insight-api that follows a modular, scalable architecture. The project uses **TypeScript**, **TypeORM**, **PostgreSQL**, and **JWT authentication**.
+This is a **Fastify-based API backend** called video-insight-api that follows a modular, scalable architecture. The project uses **TypeScript**, **TypeORM**, **PostgreSQL**, **JWT authentication**, and **AI-powered video analysis**.
 
 ## Core Technologies
 
@@ -15,6 +10,9 @@ This is a **Fastify-based API backend** called video-insight-api that follows a 
 - **[PostgreSQL](mdc:https:/www.postgresql.org)** - Primary database
 - **[@sinclair/typebox](mdc:https:/github.com/sinclairzx81/typebox)** - Schema validation
 - **[JWT](mdc:https:/jwt.io)** - Authentication system
+- **[OpenAI GPT-4](mdc:https:/openai.com)** - AI-powered video analysis
+- **[Redis](mdc:https:/redis.io)** - Caching and rate limiting
+- **[OAuth](mdc:https:/oauth.net)** - Google and Discord authentication
 
 ## Project Architecture
 
@@ -43,14 +41,70 @@ The project follows a **layered architecture** with clear separation of concerns
 
 ## Key Features
 
+### Video Processing & AI Analysis
 - **Video Processing** - Submit and process video URLs for analysis
-- **AI-Powered Insights** - Generate summaries and extract key insights using OpenAI
-- **User Management** - User registration, authentication, and profile management
+- **AI-Powered Insights** - Generate summaries and extract key insights using OpenAI GPT-4
+- **Interactive Dashboard** - Rich dashboard with mind maps, insights, and transcriptions
+- **Transcription Service** - Integrates with external transcription service (videodowncut)
+- **Real-time Processing** - Background video processing with status tracking
+
+### Authentication & User Management
 - **JWT Authentication** - Protected endpoints with bearer tokens
+- **OAuth Support** - Google and Discord OAuth providers
+- **User Management** - User registration, authentication, and profile management
+- **Profile Synchronization** - Avatar and name from OAuth providers
+
+### Credit System & Monetization
+- **Credit System** - Token-based credit system with automatic cost calculation
+- **Transaction Tracking** - Detailed credit usage and transaction history
+- **Admin Controls** - Grant/deduct credits for specific users or all users
+- **Automatic Refunds** - Credits refunded if processing fails
+
+### Security & Performance
 - **Rate Limiting** - API protection (100 requests/minute)
+- **Input Validation** - TypeBox schema validation for all requests
+- **Error Handling** - Centralized error handling with consistent responses
+- **Database Optimization** - Indexes and connection pooling
+
+### Developer Experience
 - **Swagger Documentation** - Interactive API docs at `/documentation`
 - **Database Migrations** - TypeORM migration system
 - **Testing** - Jest test suite in [**tests**/](mdc:__tests__)
+- **Hot Reload** - Development server with automatic reloading
+
+## Database Schema
+
+### Core Entities
+
+- **User** - User accounts with OAuth support and credit balance
+- **Video** - Video submissions with processing status and AI insights
+- **CreditTransaction** - Credit usage tracking and transaction history
+
+### Key Relationships
+
+- **User → Videos** - One-to-many relationship
+- **User → CreditTransactions** - One-to-many relationship
+- **Video → Dashboard** - JSON storage for AI insights
+
+## API Structure
+
+### Authentication Endpoints
+- `/auth/login` - Email/password authentication
+- `/auth/oauth/:provider/callback` - OAuth callbacks
+- `/user/register` - User registration
+
+### Video Processing Endpoints
+- `/video` - Submit and manage videos
+- `/video/:id/status` - Check processing status
+- `/video/:id` - Get video details with dashboard
+
+### Credit Management Endpoints
+- `/credits` - User credit balance and history
+- `/credits/admin/*` - Admin credit operations
+
+### Documentation
+- `/` - Interactive Swagger documentation
+- `/healthcheck` - Health check endpoint
 
 ## Development Commands
 
@@ -58,6 +112,34 @@ The project follows a **layered architecture** with clear separation of concerns
 - `npm test` - Run Jest tests
 - `npm run migration:run` - Execute database migrations
 - `npm run format` - Format code with Prettier
+- `npm run build` - Build for production (Vercel)
+
+## Deployment
+
+- **Docker** - [Dockerfile](mdc:Dockerfile) for containerization
+- **Vercel** - Serverless deployment via [vercel.json](mdc:vercel.json)
+- **Environment Configuration** - Comprehensive environment variable support
+
+## Environment Support
+
+### Required Services
+- **PostgreSQL** - Primary database
+- **OpenAI API** - AI analysis capabilities
+- **Redis** - Caching and rate limiting (optional)
+
+### Optional Integrations
+- **OAuth Providers** - Google and Discord
+- **AWS Services** - S3, CloudFront, etc.
+- **Stripe** - Payment processing
+- **Clerk** - Authentication service
+
+## Performance Features
+
+- **Connection Pooling** - Database connection optimization
+- **Rate Limiting** - API protection with Redis
+- **Caching** - Redis-based caching for frequently accessed data
+- **Background Processing** - Asynchronous video processing
+- **Database Indexes** - Optimized queries for common operations
 
 ## Deployment
 

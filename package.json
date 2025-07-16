@@ -12,8 +12,23 @@
     "migration:run": "tsx ./node_modules/typeorm/cli.js migration:run --dataSource src/config/db.config.ts",
     "migration:revert": "tsx ./node_modules/typeorm/cli.js migration:revert --dataSource src/config/db.config.ts"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "João Ricardo Joaquim <joaorjoaquim@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joaorjoaquim/video-insight-api.git"
+  },
+  "homepage": "https://api.summaryvideos.com/",
+  "keywords": [
+    "video-analysis",
+    "ai",
+    "openai",
+    "transcription",
+    "insights",
+    "fastify",
+    "typescript",
+    "postgresql"
+  ],
   "dependencies": {
     "@fastify/cors": "^10.0.2",
     "@fastify/helmet": "^13.0.1",

@@ -1,8 +1,3 @@
----
-description:
-globs:
-alwaysApply: true
----
 
 # Development Workflow & Setup
 
@@ -12,6 +7,8 @@ alwaysApply: true
 
 - **Node.js** (version specified in [package.json](mdc:package.json))
 - **PostgreSQL** database
+- **OpenAI API key** for AI analysis
+- **Redis** (optional, for caching and rate limiting)
 - **npm** for package management
 
 ### Local Development Setup
@@ -26,12 +23,12 @@ alwaysApply: true
    - Copy [.env.example](mdc:.env.example) to `.env`
    - Configure required variables:
 
-     ```
+     ```bash
      # Server Configuration
      PORT=5000
      NODE_ENV=development|production|homolog
 
-     # Database - Option 1: Complete URLs
+     # Database - Option 1: Complete URLs (Recommended)
      DATABASE_URL_WRITE=postgres://user:password@host:port/database
      DATABASE_URL_READ=postgres://user:password@host:port/database
 
@@ -44,29 +41,33 @@ alwaysApply: true
      DB_SSL=true|false
      DB_MAX_CONNECTION=10
 
+     # OpenAI Integration
+     OPENAI_API_KEY=sk-your-openai-api-key
+
+     # JWT & API Security
+     JWT_SECRET=your-super-secret-jwt-key-here-make-it-long-and-random
+     API_SECRET_KEY=your-api-secret-key-for-additional-security
+
+     # OAuth Providers (Optional)
+     CLERK_SECRET_KEY=sk_test_...
+     CLERK_WEBHOOK_SECRET=whsec_...
+     CLERK_PUBLISHABLE_KEY=pk_test_...
+
      # Redis and Cache
      REDIS_URL=redis://localhost:6379
      UPSTASH_REDIS_REST_URL=
      UPSTASH_REDIS_REST_TOKEN=
+     RATE_LIMIT_REDIS_URL=redis://localhost:6379
 
      # AWS Services (Optional)
      AWS_REGION=
      AWS_ACCESS_KEY_ID=
      AWS_SECRET_ACCESS_KEY=
 
-     # JWT & API Security
-     JWT_SECRET=your-super-secret-jwt-key-here-make-it-long-and-random
-     API_SECRET_KEY=your-api-secret-key-for-additional-security
-
-     # Clerk Integration (Authentication)
-     CLERK_SECRET_KEY=sk_test_...
-     CLERK_WEBHOOK_SECRET=whsec_...
-     CLERK_PUBLISHABLE_KEY=pk_test_...
-
      # Rate Limiting
      RATE_LIMIT_REDIS_URL=redis://localhost:6379
 
-     # External Services
+     # External Services (Optional)
      STRIPE_SECRET_KEY=sk_test_...
      STRIPE_WEBHOOK_SECRET=whsec_...
 
@@ -86,6 +87,7 @@ alwaysApply: true
    - Uses `tsx watch` for hot reloading
    - Entry point: [src/local.ts](mdc:src/local.ts)
    - Server runs on port 5000 by default
+   - Swagger docs available at `http://localhost:5000/documentation`
 
 ## Development Commands
 
@@ -114,48 +116,56 @@ alwaysApply: true
 - Add new TypeORM entity in [src/entities/](mdc:src/entities)
 - Follow existing [User.ts](mdc:src/entities/User.ts) pattern
 - Use decorators for table/column definitions
+- Include proper relationships and indexes
 
 ### 2. Create Repository
 
 - Add repository in [src/repositories/](mdc:src/repositories)
 - Extend TypeORM repository pattern
 - Handle database operations
+- Include query builders for complex queries
 
 ### 3. Create Service
 
 - Add business logic in [src/services/](mdc:src/services)
 - Import and use repository
 - Keep controllers thin, services fat
+- Handle external API integrations (OpenAI, OAuth, etc.)
 
 ### 4. Create Schema
 
 - Define TypeBox schemas in [src/schemas/](mdc:src/schemas)
 - Include request/response validation
 - Add examples for documentation
+- Follow existing patterns for consistency
 
 ### 5. Create Controller
 
 - Add controller in [src/controllers/](mdc:src/controllers)
 - Handle HTTP logic only
 - Call services for business logic
+- Include proper error handling
 
 ### 6. Create Routes
 
 - Add routes in [src/routes/](mdc:src/routes)
 - Register with schemas and controllers
 - Update [src/routes/index.ts](mdc:src/routes/index.ts)
+- Include authentication requirements
 
 ### 7. Add Documentation
 
 - Create docs in [src/docs/](mdc:src/docs)
 - Define Swagger/OpenAPI specs
 - Include examples and descriptions
+- Document authentication requirements
 
 ### 8. Write Tests
 
 - Add integration tests in [**tests**/](mdc:__tests__)
 - Use Supertest for HTTP testing
 - Follow `{feature}.test.ts` naming
+- Test both success and error scenarios
 
 ## Configuration Files
 
@@ -170,6 +180,7 @@ alwaysApply: true
 - Connection setup in [src/config/db.config.ts](mdc:src/config/db.config.ts)
 - Entity registration and migration paths
 - SSL and connection pooling options
+- Read/write database separation
 
 ### Deployment Configuration
 
@@ -184,20 +195,86 @@ alwaysApply: true
 - Follow the layered architecture pattern
 - Keep related files together by feature
 - Use consistent naming conventions
+- Separate concerns properly
 
 ### Authentication
 
 - Always protect sensitive endpoints with JWT
 - Use the auth plugin from [src/plugins/auth.ts](mdc:src/plugins/auth.ts)
 - Handle unauthorized access gracefully
+- Support both email/password and OAuth
 
 ### Error Handling
 
 - Use the centralized error handler in [src/plugins/errorHandler.ts](mdc:src/plugins/errorHandler.ts)
 - Return consistent error response formats
 - Log errors appropriately for debugging
+- Include proper HTTP status codes
+
+### Credit System
+
+- Always check credit balance before processing
+- Implement automatic refunds for failed operations
+- Track token usage for accurate billing
+- Provide detailed transaction history
 
 ### Testing
+
+- Write integration tests for all endpoints
+- Mock external dependencies when necessary
+- Maintain good test coverage
+- Test both success and error scenarios
+- Include authentication and authorization tests
+
+### Performance
+
+- Use database indexes for common queries
+- Implement connection pooling
+- Cache frequently accessed data
+- Optimize AI processing with chunking
+- Monitor rate limiting and API usage
+
+## Environment-Specific Setup
+
+### Development Environment
+
+- **Hot reloading** with `tsx watch`
+- **Detailed logging** with pretty formatting
+- **Swagger documentation** for API testing
+- **Local database** with migration support
+
+### Production Environment
+
+- **Environment variables** for all configurations
+- **Database SSL** for secure connections
+- **Rate limiting** with Redis
+- **Error logging** with proper levels
+- **Health checks** for monitoring
+
+### Testing Environment
+
+- **Separate database** for testing
+- **Mock external services** (OpenAI, OAuth)
+- **Clean test data** between runs
+- **Isolated test cases** for reliability
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Database Connection**: Check environment variables and PostgreSQL service
+2. **Migration Errors**: Run `npm run migration:run` to apply pending migrations
+3. **Authentication Issues**: Verify JWT_SECRET and token format
+4. **Rate Limiting**: Check Redis connection and rate limit configuration
+5. **AI Processing**: Verify OpenAI API key and quota limits
+
+### Debug Tools
+
+- **Swagger UI**: Interactive API testing at `/documentation`
+- **Database Logs**: Enable TypeORM logging for query debugging
+- **Error Logs**: Check application logs for detailed error information
+- **Health Check**: Use `/healthcheck` endpoint for system status
+
 
 - Write integration tests for all endpoints
 - Mock external dependencies when necessary

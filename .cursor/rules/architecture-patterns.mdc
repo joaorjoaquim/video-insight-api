@@ -1,8 +1,3 @@
----
-description:
-globs:
-alwaysApply: true
----
 
 # Architecture Patterns & Conventions
 
@@ -41,6 +36,7 @@ export const UserResponse = Type.Object({
   id: Type.Number(),
   name: Type.String(),
   email: Type.String(),
+  credits: Type.Number(),
 });
 ```
 
@@ -53,20 +49,24 @@ Routes are modularized and registered in [src/routes/index.ts](mdc:src/routes/in
 app.register(authRoutes, { prefix: '/auth' });
 app.register(userRoutes, { prefix: '/user' });
 app.register(videoRoutes, { prefix: '/video' });
+app.register(creditRoutes, { prefix: '/credits' });
 ```
 
 ## Authentication Pattern
 
-- **JWT tokens** issued via `/auth/login`
+- **JWT tokens** issued via `/auth/login` or OAuth callbacks
 - **Bearer authentication** required for protected endpoints
 - **Auth plugin** ([src/plugins/auth.ts](mdc:src/plugins/auth.ts)) handles token validation
 - **User info** attached to request via `request.user`
+- **OAuth support** for Google and Discord providers
 
 ## Error Handling
 
 - **Centralized error handler** in [src/plugins/errorHandler.ts](mdc:src/plugins/errorHandler.ts)
 - **HTTP status codes** and consistent error responses
 - **Fastify error hooks** for automatic error processing
+- **Validation errors** from TypeBox schemas
+- **Authentication errors** for JWT and OAuth failures
 
 ## Database Patterns
 
@@ -74,8 +74,83 @@ app.register(videoRoutes, { prefix: '/video' });
 - **Repository pattern** for data access abstraction
 - **Migration system** for database schema changes
 - **Connection management** via [src/config/db.config.ts](mdc:src/config/db.config.ts)
+- **Read/write separation** for database scaling
+- **Connection pooling** for performance optimization
+
+## Credit System Pattern
+
+- **Credit checking** before resource-intensive operations
+- **Transaction tracking** for all credit operations
+- **Automatic refunds** for failed operations
+- **Token usage tracking** for accurate billing
+- **Admin controls** for credit management
+
+## Video Processing Pattern
+
+- **Multi-step processing**: Download → Transcribe → AI Analysis
+- **Status tracking** with real-time updates
+- **Background processing** for long-running operations
+- **Error recovery** with automatic retries
+- **Dashboard generation** with structured insights
+
+## OAuth Integration Pattern
+
+- **Provider abstraction** in [src/services/oauth.service.ts](mdc:src/services/oauth.service.ts)
+- **Callback handling** for OAuth providers
+- **User creation/update** for OAuth users
+- **Profile synchronization** from OAuth providers
+- **Token generation** for authenticated sessions
+
+## AI Processing Pattern
+
+- **OpenAI integration** for GPT-4 analysis
+- **Text chunking** for large transcriptions
+- **Token tracking** for cost calculation
+- **Dashboard generation** with structured data
+- **Error handling** for API failures
 
 ## Testing Strategy
+
+- **Integration tests** in [**tests**/](mdc:__tests__) directory
+- **Supertest** for HTTP endpoint testing
+- **Jest** as the test runner
+- Tests follow `{feature}.test.ts` naming pattern
+- **Mock external services** (OpenAI, OAuth, etc.)
+- **Database isolation** for test reliability
+
+## Security Patterns
+
+- **Input validation** with TypeBox schemas
+- **Rate limiting** with Redis-based protection
+- **JWT token validation** for all protected endpoints
+- **CORS configuration** for cross-origin requests
+- **Environment variable** validation
+- **SQL injection prevention** via TypeORM
+
+## Performance Patterns
+
+- **Database indexes** for common queries
+- **Connection pooling** for database efficiency
+- **Redis caching** for frequently accessed data
+- **Background processing** for heavy operations
+- **Chunked processing** for large AI operations
+- **Rate limiting** to prevent abuse
+
+## Configuration Patterns
+
+- **Environment-based** configuration
+- **Validation** of required environment variables
+- **Default values** for optional configurations
+- **Development vs production** settings
+- **Service-specific** configurations (OpenAI, OAuth, etc.)
+
+## Logging Patterns
+
+- **Structured logging** with Pino
+- **Environment-specific** log levels
+- **Error tracking** with detailed context
+- **Performance monitoring** for slow operations
+- **Audit logging** for admin operations
 
 - **Integration tests** in [**tests**/](mdc:__tests__) directory
 - **Supertest** for HTTP endpoint testing

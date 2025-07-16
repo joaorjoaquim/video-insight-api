@@ -1,8 +1,3 @@
----
-description: 
-globs: 
-alwaysApply: false
----
 # Troubleshooting Guide
 
 ## Common Issues & Solutions
@@ -59,8 +54,48 @@ npm run migration:revert # Rollback last migration
 **Debug steps**:
 1. Verify `JWT_SECRET` is set in environment
 2. Check token format in Authorization header: `Bearer <token>`
-3. Ensure token is obtained from `/auth/login` endpoint
-4. Check token expiration
+3. Ensure token is obtained from `/auth/login` or OAuth callbacks
+4. Check token expiration (15 days default)
+
+### OAuth Authentication Issues
+
+**Problem**: OAuth login fails
+**Check these files**:
+- [src/services/oauth.service.ts](mdc:src/services/oauth.service.ts) - OAuth service
+- [.env](mdc:.env) - OAuth provider configuration
+
+**Debug steps**:
+1. Verify OAuth provider credentials (Google, Discord)
+2. Check callback URL configuration
+3. Ensure provider is supported (`google`, `discord`)
+4. Verify OAuth service integration
+
+### Credit System Issues
+
+**Problem**: Credit operations fail
+**Check these files**:
+- [src/services/credit.service.ts](mdc:src/services/credit.service.ts) - Credit service
+- [src/entities/CreditTransaction.ts](mdc:src/entities/CreditTransaction.ts) - Transaction entity
+
+**Debug steps**:
+1. Verify user has sufficient credits
+2. Check transaction history for failed operations
+3. Verify admin hash for admin operations
+4. Check credit calculation logic
+
+### AI Processing Issues
+
+**Problem**: Video analysis fails
+**Check these files**:
+- [src/services/video.service.ts](mdc:src/services/video.service.ts) - Video processing
+- [.env](mdc:.env) - OpenAI API configuration
+
+**Debug steps**:
+1. Verify `OPENAI_API_KEY` is set and valid
+2. Check OpenAI API quota and limits
+3. Verify video URL is accessible
+4. Check transcription service availability
+5. Review token usage and credit costs
 
 ### TypeBox Schema Validation Errors
 
@@ -106,7 +141,7 @@ npm run migration:revert # Rollback last migration
 1. Run tests with verbose output: `npm test -- --verbose`
 2. Check database connection for integration tests
 3. Verify test data setup and cleanup
-4. Check mock configurations
+4. Check mock configurations for external services
 
 ### TypeScript Compilation Errors
 
@@ -135,6 +170,7 @@ npm run migration:revert # Rollback last migration
 **Problem**: Too many requests error
 **Check**: [src/server.ts](mdc:src/server.ts) rate limit configuration
 **Current limit**: 100 requests per minute per IP
+**Redis requirement**: Verify `RATE_LIMIT_REDIS_URL` is configured
 
 ### Plugin Registration Errors
 
@@ -144,6 +180,20 @@ npm run migration:revert # Rollback last migration
 - [src/server.ts](mdc:src/server.ts) - Plugin registration order
 
 **Note**: Plugin registration order matters in Fastify
+
+### Video Processing Issues
+
+**Problem**: Video processing fails or hangs
+**Check these files**:
+- [src/services/video.service.ts](mdc:src/services/video.service.ts) - Video processing logic
+- [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts) - Processing endpoints
+
+**Debug steps**:
+1. Check video URL accessibility
+2. Verify external transcription service
+3. Monitor OpenAI API usage and limits
+4. Check credit balance and transaction history
+5. Review processing status updates
 
 ## Debugging Tools
 
@@ -161,18 +211,37 @@ npm run migration:revert # Rollback last migration
 - **Supertest**: For automated endpoint testing
 - **cURL/Postman**: Manual API testing
 
+### Credit System Debugging
+- **Transaction history**: Check `/credits` endpoint
+- **Admin operations**: Verify admin hash and permissions
+- **Credit calculations**: Review token usage and costs
+
+### OAuth Debugging
+- **Provider logs**: Check OAuth provider configuration
+- **Callback handling**: Verify redirect URLs
+- **User creation**: Monitor OAuth user registration
+
 ## Performance Issues
 
 ### High Memory Usage
 1. Check for memory leaks in services
 2. Review database connection pooling
 3. Monitor TypeORM query efficiency
+4. Check AI processing memory usage
 
 ### Slow Response Times
 1. Add database indexes for frequent queries
 2. Review N+1 query problems
 3. Check rate limiting configuration
 4. Optimize business logic in services
+5. Monitor OpenAI API response times
+
+### Video Processing Delays
+1. Check external transcription service performance
+2. Monitor OpenAI API response times
+3. Review video download speeds
+4. Optimize AI processing chunking
+5. Check credit system performance
 
 ## Environment-Specific Issues
 
@@ -181,6 +250,19 @@ npm run migration:revert # Rollback last migration
 - Database SSL requirements
 - Environment variable differences
 - Build vs development entry points
+- OAuth callback URL differences
+
+### Docker Issues
+- Check [Dockerfile](mdc:Dockerfile) configuration
+- Verify environment variables in container
+- Database connectivity from container
+- Redis connection in containerized environment
+
+### Vercel Deployment Issues
+- Check [vercel.json](mdc:vercel.json) configuration
+- Verify environment variables in Vercel dashboard
+- Database connection in serverless environment
+- Function timeout limits for video processing
 
 ### Docker Issues
 - Check [Dockerfile](mdc:Dockerfile) configuration

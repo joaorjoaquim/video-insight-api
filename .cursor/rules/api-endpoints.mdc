@@ -1,6 +1,6 @@
 # API Endpoints Guide
 
-This backend provides a API with video processing, AI-powered insights, and user management features.
+This backend provides a comprehensive API with video processing, AI-powered insights, credit management, and user authentication features.
 
 ## Health Check
 
@@ -8,30 +8,40 @@ This backend provides a API with video processing, AI-powered insights, and user
   - Route: [src/routes/healthcheck.routes.ts](mdc:src/routes/healthcheck.routes.ts)
   - Controller: [src/controllers/healthcheck.controller.ts](mdc:src/controllers/healthcheck.controller.ts)
   - Schema: [src/schemas/healthcheck.schema.ts](mdc:src/schemas/healthcheck.schema.ts)
+  - **Public endpoint** - No authentication required
 
 ## Authentication
 
-- **POST /auth/login** - Authenticate user and get JWT token
+- **POST /auth/login** - Authenticate user with email/password and get JWT token
   - Route: [src/routes/auth.routes.ts](mdc:src/routes/auth.routes.ts)
   - Controller: [src/controllers/auth.controller.ts](mdc:src/controllers/auth.controller.ts)
-  - Schema: [src/schemas/user.schema.ts](mdc:src/schemas/user.schema.ts)
+  - Schema: [src/schemas/auth.schema.ts](mdc:src/schemas/auth.schema.ts)
   - **Public endpoint** - No authentication required
+
+- **POST /auth/oauth/:provider/callback** - OAuth callback for Google/Discord
+  - Route: [src/routes/auth.routes.ts](mdc:src/routes/auth.routes.ts)
+  - Controller: [src/controllers/auth.controller.ts](mdc:src/controllers/auth.controller.ts)
+  - Service: [src/services/oauth.service.ts](mdc:src/services/oauth.service.ts)
+  - **Public endpoint** - OAuth provider redirects here
+  - **Supported providers**: `google`, `discord`
 
 ## User Management
 
-- **POST /user/register** - Create new user account
+- **POST /user/register** - Create new user account with email/password
   - Route: [src/routes/user.routes.ts](mdc:src/routes/user.routes.ts)
   - Controller: [src/controllers/user.controller.ts](mdc:src/controllers/user.controller.ts)
   - Schema: [src/schemas/user.schema.ts](mdc:src/schemas/user.schema.ts)
   - Service: [src/services/user.service.ts](mdc:src/services/user.service.ts)
   - **Public endpoint** - Registration is open
+  - **Features**: Password hashing, default credits (100), OAuth support
 
-- **GET /user/:id** - Get user profile
+- **GET /user/:id** - Get user profile and credit balance
   - Route: [src/routes/user.routes.ts](mdc:src/routes/user.routes.ts)
   - Controller: [src/controllers/user.controller.ts](mdc:src/controllers/user.controller.ts)
   - Schema: [src/schemas/user.schema.ts](mdc:src/schemas/user.schema.ts)
   - Service: [src/services/user.service.ts](mdc:src/services/user.service.ts)
   - **Protected endpoint** - Requires JWT authentication
+  - **Features**: User info, credit balance, OAuth profile data
 
 ## Video Processing
 
@@ -40,32 +50,74 @@ This backend provides a API with video processing, AI-powered insights, and user
   - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
   - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
   - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
-  - **Features**: Video URL validation, user association
+  - **Features**: Video URL validation, credit deduction, user association
   - **Protected endpoint** - Requires JWT authentication
+  - **Credit cost**: Estimated 5 credits initially, adjusted based on actual usage
 
 - **GET /video** - List all videos for authenticated user
   - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
   - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
   - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
   - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
-  - **Features**: User-specific video listing, status tracking
+  - **Features**: User-specific video listing, status tracking, pagination
   - **Protected endpoint** - Requires JWT authentication
+  - **Query parameters**: `status`, `limit`, `offset`
 
-- **GET /video/:id** - Get specific video details
+- **GET /video/:id** - Get specific video details with full dashboard
   - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
   - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
   - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
   - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
-  - **Features**: Video metadata, transcription, AI insights
+  - **Features**: Video metadata, transcription, AI insights, dashboard data
   - **Protected endpoint** - Requires JWT authentication
+  - **Dashboard includes**: Summary, transcript, insights, mind map
 
-- **POST /video/:id/process** - Start video processing
+- **POST /video/:id/process** - Start video processing manually
   - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
   - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
   - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
   - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
   - **Features**: Background processing, AI analysis, transcription
   - **Protected endpoint** - Requires JWT authentication
+  - **Processing steps**: Download → Transcribe → AI Analysis → Dashboard
+
+- **GET /video/:id/status** - Check video processing status
+  - Route: [src/routes/video.routes.ts](mdc:src/routes/video.routes.ts)
+  - Controller: [src/controllers/video.controller.ts](mdc:src/controllers/video.controller.ts)
+  - Schema: [src/schemas/video.schema.ts](mdc:src/schemas/video.schema.ts)
+  - Service: [src/services/video.service.ts](mdc:src/services/video.service.ts)
+  - **Features**: Real-time status updates, automatic processing continuation
+  - **Protected endpoint** - Requires JWT authentication
+  - **Status values**: `pending`, `downloaded`, `transcribing`, `completed`, `failed`
+
+## Credit System
+
+- **GET /credits** - Get user credit balance and transaction history
+  - Route: [src/routes/credit.routes.ts](mdc:src/routes/credit.routes.ts)
+  - Controller: [src/controllers/credit.controller.ts](mdc:src/controllers/credit.controller.ts)
+  - Schema: [src/schemas/credit.schema.ts](mdc:src/schemas/credit.schema.ts)
+  - Service: [src/services/credit.service.ts](mdc:src/services/credit.service.ts)
+  - **Features**: Current balance, transaction history, pagination
+  - **Protected endpoint** - Requires JWT authentication
+  - **Query parameters**: `limit`, `offset`
+
+- **POST /credits/admin/grant** - Admin: Grant credits to users
+  - Route: [src/routes/credit.routes.ts](mdc:src/routes/credit.routes.ts)
+  - Controller: [src/controllers/credit.controller.ts](mdc:src/controllers/credit.controller.ts)
+  - Schema: [src/schemas/credit.schema.ts](mdc:src/schemas/credit.schema.ts)
+  - Service: [src/services/credit.service.ts](mdc:src/services/credit.service.ts)
+  - **Features**: Grant to specific user or all users, admin hash validation
+  - **Public endpoint** - Requires admin hash in header
+  - **Header**: `X-Admin-Hash` with admin secret
+
+- **POST /credits/admin/deduct** - Admin: Deduct credits from users
+  - Route: [src/routes/credit.routes.ts](mdc:src/routes/credit.routes.ts)
+  - Controller: [src/controllers/credit.controller.ts](mdc:src/controllers/credit.controller.ts)
+  - Schema: [src/schemas/credit.schema.ts](mdc:src/schemas/credit.schema.ts)
+  - Service: [src/services/credit.service.ts](mdc:src/services/credit.service.ts)
+  - **Features**: Deduct from specific user or all users, admin hash validation
+  - **Public endpoint** - Requires admin hash in header
+  - **Header**: `X-Admin-Hash` with admin secret
 
 ## Swagger Documentation
 
@@ -73,19 +125,91 @@ This backend provides a API with video processing, AI-powered insights, and user
   - Configured in [src/server.ts](mdc:src/server.ts)
   - Documentation definitions in [src/docs/](mdc:src/docs) directory
   - **Public access** - No authentication required
+  - **Features**: Full API documentation, request/response examples, testing interface
 
 ## Authentication Requirements
 
-- **Public endpoints**: `/healthcheck`, `/auth/login`, `/user/register`, `/` (docs)
-- **Protected endpoints**: `/user/:id`, `/video/*`
-- **Authentication method**: Bearer JWT token in Authorization header
-- **Token obtained from**: `/auth/login` endpoint
+### Public Endpoints
+- `/healthcheck` - Health check
+- `/auth/login` - User login
+- `/auth/oauth/:provider/callback` - OAuth callbacks
+- `/user/register` - User registration
+- `/credits/admin/grant` - Admin credit grants (with hash)
+- `/credits/admin/deduct` - Admin credit deductions (with hash)
+- `/` - API documentation
+
+### Protected Endpoints
+- `/user/:id` - User profile
+- `/video/*` - All video operations
+- `/credits` - Credit management (user operations)
+
+### Authentication Method
+- **JWT Bearer tokens** in Authorization header
+- **Token format**: `Bearer <jwt_token>`
+- **Token obtained from**: `/auth/login` or OAuth callbacks
+- **Token expiration**: 15 days
 
 ## Rate Limiting
 
-- All endpoints have **100 requests per minute** limit per IP
-- Configured in [src/server.ts](mdc:src/server.ts) via `@fastify/rate-limit`
+- **All endpoints**: 100 requests per minute per IP
+- **Configuration**: [src/server.ts](mdc:src/server.ts) via `@fastify/rate-limit`
+- **Redis-based**: Uses Redis for distributed rate limiting
+- **Environment variable**: `RATE_LIMIT_REDIS_URL`
+
+## Error Handling
+
+- **Centralized error handler**: [src/plugins/errorHandler.ts](mdc:src/plugins/errorHandler.ts)
+- **Consistent error responses**: Standardized error format
+- **HTTP status codes**: Proper status codes for different error types
+- **Validation errors**: TypeBox schema validation errors
+- **Authentication errors**: JWT validation and authorization errors
 
 ## Testing Coverage
 
-- Video processing endpoints tested in [**tests**/video.test.ts](mdc:__tests__/video.test.ts)
+- **Video processing endpoints**: [__tests__/video.test.ts](mdc:__tests__/video.test.ts)
+- **Authentication endpoints**: Covered in integration tests
+- **Credit system**: Admin and user credit operations
+- **Error scenarios**: Invalid inputs, authentication failures, processing errors
+
+## Response Formats
+
+### Success Responses
+```json
+{
+  "id": 1,
+  "message": "Operation successful",
+  "data": { ... }
+}
+```
+
+### Error Responses
+```json
+{
+  "message": "Error description",
+  "statusCode": 400,
+  "error": "Bad Request"
+}
+```
+
+### Dashboard Response (Video Details)
+```json
+{
+  "id": 1,
+  "videoUrl": "https://youtube.com/watch?v=...",
+  "status": "completed",
+  "summary": {
+    "text": "Video summary...",
+    "metrics": [...],
+    "topics": [...]
+  },
+  "insights": {
+    "chips": [...],
+    "sections": [...]
+  },
+  "mindMap": {
+    "root": "Video Insights",
+    "branches": [...]
+  },
+  "transcript": [...]
+}
+```
