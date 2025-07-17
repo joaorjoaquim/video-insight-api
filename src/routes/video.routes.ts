@@ -3,8 +3,9 @@ import {
   createVideoHandler,
   getVideoHandler,
   getUserVideosHandler,
-  processVideoHandler,
   checkVideoStatusHandler,
+  processVideoHandler,
+  getFailedVideosHandler,
 } from '../controllers/video.controller';
 import {
   CreateVideoBodySchema,
@@ -121,5 +122,43 @@ export async function videoRoutes(fastify: FastifyInstance) {
       },
     },
     checkVideoStatusHandler
+  );
+
+  // Get failed videos with error analysis (for debugging)
+  fastify.get(
+    '/failed',
+    {
+      schema: {
+        querystring: Type.Object({
+          limit: Type.Optional(
+            Type.Number({ description: 'Number of failed videos to return' })
+          ),
+          offset: Type.Optional(
+            Type.Number({ description: 'Number of failed videos to skip' })
+          ),
+        }),
+        response: {
+          200: Type.Object({
+            videos: Type.Array(VideoResponseSchema),
+            pagination: Type.Object({
+              total: Type.Number(),
+              limit: Type.Number(),
+              offset: Type.Number(),
+            }),
+            errorSummary: Type.Object({
+              downloadFailures: Type.Number(),
+              transcriptionFailures: Type.Number(),
+              aiProcessingFailures: Type.Number(),
+              creditFailures: Type.Number(),
+              unknownFailures: Type.Number(),
+            }),
+          }),
+          401: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+      preHandler: [fastify.authenticate],
+    },
+    getFailedVideosHandler
   );
 }

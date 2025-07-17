@@ -55,7 +55,7 @@ export async function createVideoWithCredits(
   // Calculate estimated credits based on video URL (rough estimation)
   // We'll use a conservative estimate of 5 credits initially
   const estimatedCredits = 5;
-  
+
   // Check if user has enough credits
   const creditSpent = await spendCredits({
     userId,
@@ -150,12 +150,17 @@ export async function updateVideo(
       return await getVideoById(id);
     } catch (error) {
       lastError = error;
-      console.error(`Database update attempt ${attempt} failed:`, error.message);
-      
+      console.error(
+        `Database update attempt ${attempt} failed:`,
+        error.message
+      );
+
       if (attempt < maxRetries) {
         // Wait before retry (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        console.log(`Retrying database update (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        console.log(
+          `Retrying database update (attempt ${attempt + 1}/${maxRetries})`
+        );
       }
     }
   }
@@ -166,17 +171,59 @@ export async function updateVideo(
 
 // Step 1: Start video download
 export async function startVideoDownload(videoId: number): Promise<void> {
+  const startTime = Date.now();
   const video = await getVideoById(videoId);
+
   if (!video) {
+    console.error(`[VIDEO_DOWNLOAD] Video not found: ${videoId}`);
     throw new Error('Video not found');
   }
 
+  console.log(`[VIDEO_DOWNLOAD] Starting download for video ${videoId}`, {
+    videoId,
+    userId: video.userId,
+    videoUrl: video.videoUrl,
+    status: video.status,
+    timestamp: new Date().toISOString(),
+  });
+
   try {
+    console.log(`[VIDEO_DOWNLOAD] Requesting download from videodowncut.com`, {
+      videoId,
+      videoUrl: video.videoUrl,
+      timestamp: new Date().toISOString(),
+    });
+
     const downloadResponse = await downloadVideoFromService(video.videoUrl);
+    const requestTime = Date.now() - startTime;
+
+    console.log(`[VIDEO_DOWNLOAD] Download response received`, {
+      videoId,
+      success: downloadResponse.success,
+      responseTime: `${requestTime}ms`,
+      hasData: !!downloadResponse.data,
+      timestamp: new Date().toISOString(),
+    });
 
     if (!downloadResponse.success) {
+      console.error(`[VIDEO_DOWNLOAD] Download failed for video ${videoId}`, {
+        videoId,
+        error: 'Download service returned failure',
+        response: downloadResponse,
+        timestamp: new Date().toISOString(),
+      });
       throw new Error('Failed to download video');
     }
+
+    console.log(`[VIDEO_DOWNLOAD] Download successful, updating database`, {
+      videoId,
+      serviceVideoId: downloadResponse.data.videoId,
+      title: downloadResponse.data.title,
+      duration: downloadResponse.data.duration,
+      hasThumbnail: !!downloadResponse.data.thumbnail,
+      hasDownloadUrl: !!downloadResponse.data.downloadUrl,
+      timestamp: new Date().toISOString(),
+    });
 
     await updateVideo(videoId, {
       videoId: downloadResponse.data.videoId,
@@ -186,10 +233,33 @@ export async function startVideoDownload(videoId: number): Promise<void> {
       downloadUrl: downloadResponse.data.downloadUrl,
       status: 'downloaded',
     });
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[VIDEO_DOWNLOAD] Download completed successfully`, {
+      videoId,
+      totalTime: `${totalTime}ms`,
+      serviceVideoId: downloadResponse.data.videoId,
+      title: downloadResponse.data.title,
+      duration: downloadResponse.data.duration,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
+    const totalTime = Date.now() - startTime;
+    const errorMessage =
+      error instanceof Error ? error.message : 'Download failed';
+
+    console.error(`[VIDEO_DOWNLOAD] Download failed for video ${videoId}`, {
+      videoId,
+      userId: video.userId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalTime: `${totalTime}ms`,
+      timestamp: new Date().toISOString(),
+    });
+
     await updateVideo(videoId, {
       status: 'failed',
-      errorMessage: error instanceof Error ? error.message : 'Download failed',
+      errorMessage: errorMessage,
     });
 
     // Refund initial estimated credits for failed download
@@ -197,12 +267,20 @@ export async function startVideoDownload(videoId: number): Promise<void> {
       where: {
         userId: video.userId,
         referenceId: videoId.toString(),
-        referenceType: 'video_submission_estimated'
+        referenceType: 'video_submission_estimated',
       },
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     if (initialTransaction) {
+      console.log(`[VIDEO_DOWNLOAD] Refunding credits for failed download`, {
+        videoId,
+        userId: video.userId,
+        refundAmount: Math.abs(initialTransaction.amount),
+        transactionId: initialTransaction.id,
+        timestamp: new Date().toISOString(),
+      });
+
       await refundCredits({
         userId: video.userId,
         amount: Math.abs(initialTransaction.amount),
@@ -218,27 +296,103 @@ export async function startVideoDownload(videoId: number): Promise<void> {
 
 // Step 2: Start transcription
 export async function startTranscription(videoId: number): Promise<void> {
+  const startTime = Date.now();
   const video = await getVideoById(videoId);
+
   if (!video || !video.videoId) {
+    console.error(
+      `[TRANSCRIPTION] Video not found or not downloaded: ${videoId}`
+    );
     throw new Error('Video not found or not downloaded');
   }
 
+  console.log(`[TRANSCRIPTION] Starting transcription for video ${videoId}`, {
+    videoId,
+    userId: video.userId,
+    serviceVideoId: video.videoId,
+    title: video.title,
+    duration: video.duration,
+    status: video.status,
+    timestamp: new Date().toISOString(),
+  });
+
   try {
+    console.log(
+      `[TRANSCRIPTION] Requesting transcription from videodowncut.com`,
+      {
+        videoId,
+        serviceVideoId: video.videoId,
+        timestamp: new Date().toISOString(),
+      }
+    );
+
     const transcriptionResponse = await requestTranscription(video.videoId);
+    const requestTime = Date.now() - startTime;
+
+    console.log(`[TRANSCRIPTION] Transcription response received`, {
+      videoId,
+      success: transcriptionResponse.success,
+      responseTime: `${requestTime}ms`,
+      hasData: !!transcriptionResponse.data,
+      timestamp: new Date().toISOString(),
+    });
 
     if (!transcriptionResponse.success) {
+      console.error(
+        `[TRANSCRIPTION] Transcription request failed for video ${videoId}`,
+        {
+          videoId,
+          error: 'Transcription service returned failure',
+          response: transcriptionResponse,
+          timestamp: new Date().toISOString(),
+        }
+      );
       throw new Error('Failed to request transcription');
     }
+
+    console.log(
+      `[TRANSCRIPTION] Transcription request successful, updating database`,
+      {
+        videoId,
+        transcriptionId: transcriptionResponse.data.transcriptionId,
+        serviceVideoId: transcriptionResponse.data.videoId,
+        status: transcriptionResponse.data.status,
+        hasStatusUrl: !!transcriptionResponse.data.statusUrl,
+        hasTranscriptionUrl: !!transcriptionResponse.data.transcriptionUrl,
+        timestamp: new Date().toISOString(),
+      }
+    );
 
     await updateVideo(videoId, {
       transcriptionId: transcriptionResponse.data.transcriptionId,
       status: 'transcribing',
     });
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[TRANSCRIPTION] Transcription started successfully`, {
+      videoId,
+      totalTime: `${totalTime}ms`,
+      transcriptionId: transcriptionResponse.data.transcriptionId,
+      status: transcriptionResponse.data.status,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
+    const totalTime = Date.now() - startTime;
+    const errorMessage =
+      error instanceof Error ? error.message : 'Transcription request failed';
+
+    console.error(`[TRANSCRIPTION] Transcription failed for video ${videoId}`, {
+      videoId,
+      userId: video.userId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalTime: `${totalTime}ms`,
+      timestamp: new Date().toISOString(),
+    });
+
     await updateVideo(videoId, {
       status: 'failed',
-      errorMessage:
-        error instanceof Error ? error.message : 'Transcription request failed',
+      errorMessage: errorMessage,
     });
 
     // Refund initial estimated credits for failed transcription
@@ -246,12 +400,23 @@ export async function startTranscription(videoId: number): Promise<void> {
       where: {
         userId: video.userId,
         referenceId: videoId.toString(),
-        referenceType: 'video_submission_estimated'
+        referenceType: 'video_submission_estimated',
       },
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     if (initialTransaction) {
+      console.log(
+        `[TRANSCRIPTION] Refunding credits for failed transcription`,
+        {
+          videoId,
+          userId: video.userId,
+          refundAmount: Math.abs(initialTransaction.amount),
+          transactionId: initialTransaction.id,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
       await refundCredits({
         userId: video.userId,
         amount: Math.abs(initialTransaction.amount),
@@ -269,49 +434,112 @@ export async function startTranscription(videoId: number): Promise<void> {
 export async function checkTranscriptionStatus(
   videoId: number
 ): Promise<{ status: string; dashboard?: any }> {
+  const startTime = Date.now();
   const video = await getVideoById(videoId);
+
   if (!video || !video.transcriptionId) {
+    console.error(
+      `[TRANSCRIPTION_STATUS] Video not found or transcription not started`,
+      {
+        videoId,
+        hasVideo: !!video,
+        hasTranscriptionId: !!video?.transcriptionId,
+        transcriptionId: video?.transcriptionId,
+        timestamp: new Date().toISOString(),
+      }
+    );
     throw new Error('Video not found or transcription not started');
   }
+
+  console.log(`[TRANSCRIPTION_STATUS] Checking status for video ${videoId}`, {
+    videoId,
+    userId: video.userId,
+    transcriptionId: video.transcriptionId,
+    currentStatus: video.status,
+    timestamp: new Date().toISOString(),
+  });
 
   try {
     const transcription = await pollTranscriptionStatus(video.transcriptionId);
 
     if (transcription) {
+      console.log(
+        `[TRANSCRIPTION_STATUS] Transcription received, starting AI processing`,
+        {
+          videoId,
+          transcriptionLength: transcription.length,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
       // Track tokens used and spend credits
       let totalTokensUsed = 0;
       let dashboard: any;
 
       try {
         // Generate AI insights (original function)
-        const { dashboard: generatedDashboard, tokensUsed } = await generateAIInsights(transcription);
-        
+        const { dashboard: generatedDashboard, tokensUsed } =
+          await generateAIInsights(transcription);
+
         // Use actual tokens from OpenAI API
         totalTokensUsed = tokensUsed;
-        
+
+        console.log(
+          `[TRANSCRIPTION_STATUS] AI insights generated successfully`,
+          {
+            videoId,
+            tokensUsed: totalTokensUsed,
+            hasDashboard: !!generatedDashboard,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
         // Calculate final credit cost based on actual tokens used
         const finalCreditsCost = calculateCreditsFromTokens(totalTokensUsed);
-        
+
         // Update the initial estimated transaction with actual values
         // Find the initial transaction for this video
         const initialTransaction = await CreditTransactionRepository.findOne({
           where: {
             userId: video.userId,
             referenceId: videoId.toString(),
-            referenceType: 'video_submission_estimated'
+            referenceType: 'video_submission_estimated',
           },
-          order: { createdAt: 'DESC' }
+          order: { createdAt: 'DESC' },
         });
 
         if (initialTransaction) {
+          console.log(
+            `[TRANSCRIPTION_STATUS] Updating credit transaction with actual costs`,
+            {
+              videoId,
+              userId: video.userId,
+              estimatedAmount: Math.abs(initialTransaction.amount),
+              actualAmount: finalCreditsCost,
+              tokensUsed: totalTokensUsed,
+              timestamp: new Date().toISOString(),
+            }
+          );
+
           // Update the initial transaction with actual values
           await CreditTransactionRepository.update(initialTransaction.id, {
             amount: -finalCreditsCost, // Update to actual cost
             description: `AI video analysis (${totalTokensUsed} tokens)`,
             referenceType: 'video_ai_processing',
-            tokensUsed: totalTokensUsed
+            tokensUsed: totalTokensUsed,
           });
         } else {
+          console.warn(
+            `[TRANSCRIPTION_STATUS] Initial transaction not found, creating new one`,
+            {
+              videoId,
+              userId: video.userId,
+              finalCreditsCost,
+              tokensUsed: totalTokensUsed,
+              timestamp: new Date().toISOString(),
+            }
+          );
+
           // Fallback: create new transaction if initial not found
           const creditSpent = await spendCredits({
             userId: video.userId,
@@ -323,6 +551,17 @@ export async function checkTranscriptionStatus(
           });
 
           if (!creditSpent) {
+            console.error(
+              `[TRANSCRIPTION_STATUS] Insufficient credits for AI processing`,
+              {
+                videoId,
+                userId: video.userId,
+                requiredCredits: finalCreditsCost,
+                tokensUsed: totalTokensUsed,
+                timestamp: new Date().toISOString(),
+              }
+            );
+
             // User doesn't have enough credits
             await updateVideo(videoId, {
               status: 'failed',
@@ -340,19 +579,60 @@ export async function checkTranscriptionStatus(
           status: 'completed',
         });
 
+        const totalTime = Date.now() - startTime;
+        console.log(
+          `[TRANSCRIPTION_STATUS] Video processing completed successfully`,
+          {
+            videoId,
+            userId: video.userId,
+            totalTime: `${totalTime}ms`,
+            tokensUsed: totalTokensUsed,
+            creditsCost: finalCreditsCost,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
         return { status: 'completed', dashboard: generatedDashboard };
       } catch (aiError) {
+        const aiErrorTime = Date.now() - startTime;
+        const errorMessage =
+          aiError instanceof Error ? aiError.message : 'AI processing failed';
+
+        console.error(
+          `[TRANSCRIPTION_STATUS] AI processing failed for video ${videoId}`,
+          {
+            videoId,
+            userId: video.userId,
+            error: errorMessage,
+            stack: aiError instanceof Error ? aiError.stack : undefined,
+            aiErrorTime: `${aiErrorTime}ms`,
+            transcriptionLength: transcription.length,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
         // If AI processing fails, refund the initial estimated credits
         const initialTransaction = await CreditTransactionRepository.findOne({
           where: {
             userId: video.userId,
             referenceId: videoId.toString(),
-            referenceType: 'video_submission_estimated'
+            referenceType: 'video_submission_estimated',
           },
-          order: { createdAt: 'DESC' }
+          order: { createdAt: 'DESC' },
         });
 
         if (initialTransaction) {
+          console.log(
+            `[TRANSCRIPTION_STATUS] Refunding credits for failed AI processing`,
+            {
+              videoId,
+              userId: video.userId,
+              refundAmount: Math.abs(initialTransaction.amount),
+              transactionId: initialTransaction.id,
+              timestamp: new Date().toISOString(),
+            }
+          );
+
           await refundCredits({
             userId: video.userId,
             amount: Math.abs(initialTransaction.amount), // Refund the estimated amount
@@ -364,32 +644,83 @@ export async function checkTranscriptionStatus(
 
         await updateVideo(videoId, {
           status: 'failed',
-          errorMessage: aiError instanceof Error ? aiError.message : 'AI processing failed',
+          errorMessage: errorMessage,
         });
         throw aiError;
       }
     } else {
+      console.log(
+        `[TRANSCRIPTION_STATUS] No transcription received, checking service status`,
+        {
+          videoId,
+          transcriptionId: video.transcriptionId,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
       // Check if it's still processing or failed
       const response = await fetch(
         `https://api.videodowncut.com/api/transcriptions/${video.transcriptionId}/status`
       );
       const statusData: TranscriptionStatusResponse = await response.json();
 
+      console.log(`[TRANSCRIPTION_STATUS] Service status check result`, {
+        videoId,
+        transcriptionId: video.transcriptionId,
+        statusCode: response.status,
+        serviceStatus: statusData.data?.status,
+        success: statusData.success,
+        hasText: !!statusData.data?.text,
+        timestamp: new Date().toISOString(),
+      });
+
       if (statusData.success && statusData.data.status === 'failed') {
+        console.error(
+          `[TRANSCRIPTION_STATUS] Service reported transcription failed`,
+          {
+            videoId,
+            transcriptionId: video.transcriptionId,
+            serviceStatus: statusData.data.status,
+            responseData: statusData,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
         await updateVideo(videoId, {
           status: 'failed',
-          errorMessage: 'Transcription failed',
+          errorMessage: 'Transcription failed at service level',
         });
         return { status: 'failed' };
       }
 
+      console.log(
+        `[TRANSCRIPTION_STATUS] Still processing, returning transcribing status`,
+        {
+          videoId,
+          serviceStatus: statusData.data?.status,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
       return { status: 'transcribing' };
     }
   } catch (error) {
+    const totalTime = Date.now() - startTime;
+    const errorMessage =
+      error instanceof Error ? error.message : 'Status check failed';
+
+    console.error(`[TRANSCRIPTION_STATUS] Unexpected error in status check`, {
+      videoId,
+      userId: video?.userId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalTime: `${totalTime}ms`,
+      timestamp: new Date().toISOString(),
+    });
+
     await updateVideo(videoId, {
       status: 'failed',
-      errorMessage:
-        error instanceof Error ? error.message : 'Status check failed',
+      errorMessage: errorMessage,
     });
     throw error;
   }
@@ -441,9 +772,9 @@ export async function processVideo(videoId: number): Promise<void> {
       where: {
         userId: video.userId,
         referenceId: videoId.toString(),
-        referenceType: 'video_submission_estimated'
+        referenceType: 'video_submission_estimated',
       },
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     if (initialTransaction) {
@@ -463,41 +794,187 @@ export async function processVideo(videoId: number): Promise<void> {
 async function downloadVideoFromService(
   videoUrl: string
 ): Promise<VideoDownloadResponse> {
-  const response = await fetch(
-    'https://api.videodowncut.com/api/videos/download',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url: videoUrl }),
-    }
-  );
+  const startTime = Date.now();
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  return await response.json();
+  console.log(`[VIDEODOWNCUT_API] Starting download request`, {
+    requestId,
+    videoUrl,
+    endpoint: 'https://api.videodowncut.com/api/videos/download',
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    const response = await fetch(
+      'https://api.videodowncut.com/api/videos/download',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: videoUrl }),
+      }
+    );
+
+    const responseTime = Date.now() - startTime;
+    const responseData = await response.json();
+
+    console.log(`[VIDEODOWNCUT_API] Download response received`, {
+      requestId,
+      statusCode: response.status,
+      responseTime: `${responseTime}ms`,
+      success: responseData.success,
+      hasData: !!responseData.data,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (!response.ok) {
+      console.error(`[VIDEODOWNCUT_API] HTTP error in download request`, {
+        requestId,
+        statusCode: response.status,
+        statusText: response.statusText,
+        responseData,
+        responseTime: `${responseTime}ms`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (responseData.success && responseData.data) {
+      console.log(`[VIDEODOWNCUT_API] Download successful`, {
+        requestId,
+        serviceVideoId: responseData.data.videoId,
+        title: responseData.data.title,
+        duration: responseData.data.duration,
+        hasThumbnail: !!responseData.data.thumbnail,
+        hasDownloadUrl: !!responseData.data.downloadUrl,
+        responseTime: `${responseTime}ms`,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      console.error(`[VIDEODOWNCUT_API] Download service returned failure`, {
+        requestId,
+        responseData,
+        responseTime: `${responseTime}ms`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return responseData;
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    const errorMessage =
+      error instanceof Error ? error.message : 'Network error';
+
+    console.error(`[VIDEODOWNCUT_API] Network error in download request`, {
+      requestId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalTime: `${totalTime}ms`,
+      videoUrl,
+      timestamp: new Date().toISOString(),
+    });
+
+    throw error;
+  }
 }
 
 async function requestTranscription(
   videoId: string
 ): Promise<TranscriptionResponse> {
-  const response = await fetch(
-    `https://api.videodowncut.com/api/videos/${videoId}/transcribe`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        modelSize: 'large-v3',
-        device: 'cuda',
-        computeType: 'float16',
-        language: 'en',
-        saveToFile: true,
-      }),
-    }
-  );
+  const startTime = Date.now();
+  const requestId = `trans_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  return await response.json();
+  console.log(`[VIDEODOWNCUT_API] Starting transcription request`, {
+    requestId,
+    serviceVideoId: videoId,
+    endpoint: `https://api.videodowncut.com/api/videos/${videoId}/transcribe`,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    const response = await fetch(
+      `https://api.videodowncut.com/api/videos/${videoId}/transcribe`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          modelSize: 'large-v3',
+          device: 'cuda',
+          computeType: 'float16',
+          language: 'en',
+          saveToFile: true,
+        }),
+      }
+    );
+
+    const responseTime = Date.now() - startTime;
+    const responseData = await response.json();
+
+    console.log(`[VIDEODOWNCUT_API] Transcription response received`, {
+      requestId,
+      serviceVideoId: videoId,
+      statusCode: response.status,
+      responseTime: `${responseTime}ms`,
+      success: responseData.success,
+      hasData: !!responseData.data,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (!response.ok) {
+      console.error(`[VIDEODOWNCUT_API] HTTP error in transcription request`, {
+        requestId,
+        serviceVideoId: videoId,
+        statusCode: response.status,
+        statusText: response.statusText,
+        responseData,
+        responseTime: `${responseTime}ms`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (responseData.success && responseData.data) {
+      console.log(`[VIDEODOWNCUT_API] Transcription request successful`, {
+        requestId,
+        serviceVideoId: videoId,
+        transcriptionId: responseData.data.transcriptionId,
+        status: responseData.data.status,
+        hasStatusUrl: !!responseData.data.statusUrl,
+        hasTranscriptionUrl: !!responseData.data.transcriptionUrl,
+        responseTime: `${responseTime}ms`,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      console.error(
+        `[VIDEODOWNCUT_API] Transcription service returned failure`,
+        {
+          requestId,
+          serviceVideoId: videoId,
+          responseData,
+          responseTime: `${responseTime}ms`,
+          timestamp: new Date().toISOString(),
+        }
+      );
+    }
+
+    return responseData;
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    const errorMessage =
+      error instanceof Error ? error.message : 'Network error';
+
+    console.error(`[VIDEODOWNCUT_API] Network error in transcription request`, {
+      requestId,
+      serviceVideoId: videoId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalTime: `${totalTime}ms`,
+      timestamp: new Date().toISOString(),
+    });
+
+    throw error;
+  }
 }
 
 async function pollTranscriptionStatus(
@@ -505,25 +982,136 @@ async function pollTranscriptionStatus(
 ): Promise<string | null> {
   const maxAttempts = 30; // 5 minutes with 10-second intervals
   let attempts = 0;
+  const startTime = Date.now();
+  const requestId = `poll_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  console.log(`[TRANSCRIPTION_POLL] Starting status polling`, {
+    requestId,
+    transcriptionId,
+    maxAttempts,
+    pollInterval: '10s',
+    expectedMaxTime: '5m',
+    timestamp: new Date().toISOString(),
+  });
 
   while (attempts < maxAttempts) {
-    const response = await fetch(
-      `https://api.videodowncut.com/api/transcriptions/${transcriptionId}/status`
-    );
-    const statusData: TranscriptionStatusResponse = await response.json();
-
-    if (statusData.success && statusData.data.status === 'completed') {
-      return statusData.data.text || null;
-    }
-
-    if (statusData.success && statusData.data.status === 'failed') {
-      return null;
-    }
-
-    // Wait 10 seconds before next attempt
-    await new Promise((resolve) => setTimeout(resolve, 10000));
     attempts++;
+    const attemptStartTime = Date.now();
+
+    console.log(
+      `[TRANSCRIPTION_POLL] Polling attempt ${attempts}/${maxAttempts}`,
+      {
+        requestId,
+        transcriptionId,
+        attempt: attempts,
+        timestamp: new Date().toISOString(),
+      }
+    );
+
+    try {
+      const response = await fetch(
+        `https://api.videodowncut.com/api/transcriptions/${transcriptionId}/status`
+      );
+      const statusData: TranscriptionStatusResponse = await response.json();
+      const attemptTime = Date.now() - attemptStartTime;
+
+      console.log(`[TRANSCRIPTION_POLL] Status response received`, {
+        requestId,
+        transcriptionId,
+        attempt: attempts,
+        statusCode: response.status,
+        status: statusData.data?.status,
+        success: statusData.success,
+        hasText: !!statusData.data?.text,
+        attemptTime: `${attemptTime}ms`,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (statusData.success && statusData.data.status === 'completed') {
+        const totalTime = Date.now() - startTime;
+        const textLength = statusData.data.text?.length || 0;
+
+        console.log(
+          `[TRANSCRIPTION_POLL] Transcription completed successfully`,
+          {
+            requestId,
+            transcriptionId,
+            totalAttempts: attempts,
+            totalTime: `${totalTime}ms`,
+            textLength,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        return statusData.data.text || null;
+      }
+
+      if (statusData.success && statusData.data.status === 'failed') {
+        const totalTime = Date.now() - startTime;
+
+        console.error(`[TRANSCRIPTION_POLL] Transcription failed`, {
+          requestId,
+          transcriptionId,
+          totalAttempts: attempts,
+          totalTime: `${totalTime}ms`,
+          status: statusData.data.status,
+          timestamp: new Date().toISOString(),
+        });
+
+        return null;
+      }
+
+      // Still processing, wait before next attempt
+      if (attempts < maxAttempts) {
+        console.log(
+          `[TRANSCRIPTION_POLL] Still processing, waiting 10s before next attempt`,
+          {
+            requestId,
+            transcriptionId,
+            attempt: attempts,
+            status: statusData.data?.status,
+            nextAttempt: attempts + 1,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+      }
+    } catch (error) {
+      const attemptTime = Date.now() - attemptStartTime;
+      const errorMessage =
+        error instanceof Error ? error.message : 'Network error';
+
+      console.error(
+        `[TRANSCRIPTION_POLL] Error in polling attempt ${attempts}`,
+        {
+          requestId,
+          transcriptionId,
+          attempt: attempts,
+          error: errorMessage,
+          attemptTime: `${attemptTime}ms`,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
+      // Continue polling even if one attempt fails
+      if (attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+      }
+    }
   }
+
+  const totalTime = Date.now() - startTime;
+  console.error(
+    `[TRANSCRIPTION_POLL] Polling timeout after ${maxAttempts} attempts`,
+    {
+      requestId,
+      transcriptionId,
+      totalAttempts: attempts,
+      totalTime: `${totalTime}ms`,
+      timestamp: new Date().toISOString(),
+    }
+  );
 
   return null;
 }
@@ -578,27 +1166,54 @@ function splitTextIntoChunks(text: string, maxTokens: number = 500): string[] {
 function calculateCreditsFromTokens(tokensUsed: number): number {
   // Base cost for video download and transcription services
   const baseServiceCost = 2; // 2 credits for download + transcription
-  
+
   // OpenAI token cost (proportional to tokens used)
   // Using a reasonable rate: 1 credit per 500 tokens
   const tokenCredits = Math.ceil(tokensUsed / 500);
-  
+
   // Total credits (base service cost + token cost)
   const totalCredits = baseServiceCost + tokenCredits;
-  
+
   // Apply min/max constraints
   const minCredits = 3;
   const maxCredits = 10;
-  
+
   return Math.max(minCredits, Math.min(maxCredits, totalCredits));
 }
 
 async function generateAIInsights(
   transcription: string
 ): Promise<{ dashboard: any; tokensUsed: number }> {
+  const startTime = Date.now();
+  const requestId = `ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  let totalTokensUsed = 0;
+
+  console.log(`[AI_INSIGHTS] Starting AI insights generation`, {
+    requestId,
+    transcriptionLength: transcription.length,
+    estimatedTokens: estimateTokenCount(transcription),
+    timestamp: new Date().toISOString(),
+  });
+
   try {
     // Step 1: Deduplication
+    console.log(`[AI_INSIGHTS] Step 1: Deduplicating transcription`, {
+      requestId,
+      originalLength: transcription.length,
+      timestamp: new Date().toISOString(),
+    });
+
     const deduplicatedText = removeDuplicateSegments(transcription);
+
+    console.log(`[AI_INSIGHTS] Deduplication completed`, {
+      requestId,
+      originalLength: transcription.length,
+      deduplicatedLength: deduplicatedText.length,
+      reductionPercent: Math.round(
+        (1 - deduplicatedText.length / transcription.length) * 100
+      ),
+      timestamp: new Date().toISOString(),
+    });
 
     // Step 2: Check if text needs to be split into chunks
     const tokenCount = estimateTokenCount(deduplicatedText);
@@ -607,19 +1222,42 @@ async function generateAIInsights(
         ? splitTextIntoChunks(deduplicatedText)
         : [deduplicatedText];
 
+    console.log(`[AI_INSIGHTS] Step 2: Text chunking`, {
+      requestId,
+      totalTokens: tokenCount,
+      numberOfChunks: chunks.length,
+      needsChunking: tokenCount > 2000,
+      timestamp: new Date().toISOString(),
+    });
+
     const allResults: any[] = [];
     const allWarnings: string[] = [];
     let totalTokensUsed = 0;
 
     // Process each chunk
     for (let i = 0; i < chunks.length; i++) {
+      const chunkStartTime = Date.now();
       const chunk = chunks[i];
       const chunkTokenCount = estimateTokenCount(chunk);
 
+      console.log(`[AI_INSIGHTS] Processing chunk ${i + 1}/${chunks.length}`, {
+        requestId,
+        chunkIndex: i + 1,
+        chunkLength: chunk.length,
+        estimatedTokens: chunkTokenCount,
+        timestamp: new Date().toISOString(),
+      });
+
       if (chunkTokenCount > 2000) {
-        allWarnings.push(
-          `Chunk ${i + 1} muito longo (${chunkTokenCount} tokens) - resumido`
-        );
+        const warning = `Chunk ${i + 1} muito longo (${chunkTokenCount} tokens) - resumido`;
+        allWarnings.push(warning);
+        console.warn(`[AI_INSIGHTS] Large chunk detected`, {
+          requestId,
+          chunkIndex: i + 1,
+          chunkTokens: chunkTokenCount,
+          warning,
+          timestamp: new Date().toISOString(),
+        });
       }
 
       const prompt = `You are an expert video summarizer and insight extractor. Given a video transcription, return a JSON object with the following structure, designed for a modern, interactive web dashboard. The output should be concise, well-structured, and visually rich for both list and mind map views.
@@ -692,99 +1330,236 @@ Return only the JSON object, no extra text.
 Texto para análise:
 ${chunk}`;
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Você é um assistente especializado em análise de transcrições de vídeo. Sempre retorne JSON válido e completo.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: 2000, // Increased from 500 to ensure complete response
-        // Removed stop parameter to prevent truncation
-      });
-
-      // Track actual tokens used from OpenAI response
-      totalTokensUsed += completion.usage?.total_tokens || 0;
-
-      const response = completion.choices[0]?.message?.content;
-
-      if (!response) {
-        throw new Error('Failed to generate AI insights for chunk');
-      }
-
-      // Check if response is complete JSON
-      const trimmedResponse = response.trim();
-      if (!trimmedResponse.endsWith('}')) {
-        console.error('Incomplete JSON response detected');
-        console.error('Response ends with:', trimmedResponse.slice(-50));
-        throw new Error('Incomplete JSON response from OpenAI');
-      }
+      console.log(
+        `[AI_INSIGHTS] Sending request to OpenAI for chunk ${i + 1}`,
+        {
+          requestId,
+          chunkIndex: i + 1,
+          promptLength: prompt.length,
+          timestamp: new Date().toISOString(),
+        }
+      );
 
       try {
-        const result = JSON.parse(response);
-        console.log('OpenAI response parsed:', JSON.stringify(result, null, 2));
-        
-        // Check if this is already a dashboard object
-        if (result.summary && typeof result.summary === 'object' && result.summary.text) {
-          console.log('Returning dashboard object directly');
-          // This is already a dashboard object, return it directly
-          return { dashboard: result, tokensUsed: totalTokensUsed };
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4-turbo-preview',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Você é um assistente especializado em análise de transcrições de vídeo. Sempre retorne JSON válido e completo.',
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          temperature: 0.2,
+          max_tokens: 2000, // Increased from 500 to ensure complete response
+          // Removed stop parameter to prevent truncation
+        });
+
+        const chunkTime = Date.now() - chunkStartTime;
+        const tokensUsed = completion.usage?.total_tokens || 0;
+        totalTokensUsed += tokensUsed;
+
+        console.log(
+          `[AI_INSIGHTS] OpenAI response received for chunk ${i + 1}`,
+          {
+            requestId,
+            chunkIndex: i + 1,
+            responseTime: `${chunkTime}ms`,
+            tokensUsed,
+            totalTokensUsed,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        // Track actual tokens used from OpenAI response
+        const response = completion.choices[0]?.message?.content;
+
+        if (!response) {
+          console.error(
+            `[AI_INSIGHTS] Empty response from OpenAI for chunk ${i + 1}`,
+            {
+              requestId,
+              chunkIndex: i + 1,
+              timestamp: new Date().toISOString(),
+            }
+          );
+          throw new Error('Failed to generate AI insights for chunk');
         }
-        
-        // Check if this has the full dashboard structure
-        if (result.summary && result.transcript && result.insights && result.mindMap) {
-          console.log('Returning full dashboard structure directly');
-          return { dashboard: result, tokensUsed: totalTokensUsed };
+
+        // Check if response is complete JSON
+        const trimmedResponse = response.trim();
+        if (!trimmedResponse.endsWith('}')) {
+          console.error(
+            `[AI_INSIGHTS] Incomplete JSON response detected for chunk ${i + 1}`,
+            {
+              requestId,
+              chunkIndex: i + 1,
+              responseEndsWith: trimmedResponse.slice(-50),
+              responseLength: response.length,
+              timestamp: new Date().toISOString(),
+            }
+          );
+          throw new Error('Incomplete JSON response from OpenAI');
         }
-        
-        // If it's the old format, store it for consolidation
-        allResults.push(result);
-        if (result.warnings) {
-          allWarnings.push(...result.warnings);
-        }
-      } catch (parseError) {
-        console.error('JSON parsing error:', parseError);
-        console.error('Raw response:', response);
-        console.error('Response length:', response.length);
-        
-        // Check if the response is truncated
-        if (response.includes('"insights"') && response.includes('"mindMap"')) {
-          console.log('Response appears to be truncated, attempting to fix...');
-          // Try to find the end of the JSON
-          const lastBrace = response.lastIndexOf('}');
-          if (lastBrace > 0) {
-            const truncatedResponse = response.substring(0, lastBrace + 1);
-            try {
-              const fixedResult = JSON.parse(truncatedResponse);
-              console.log('Successfully parsed truncated response');
-              if (fixedResult.summary && fixedResult.transcript && fixedResult.insights && fixedResult.mindMap) {
-                return { dashboard: fixedResult, tokensUsed: totalTokensUsed };
+
+        try {
+          const result = JSON.parse(response);
+          console.log(
+            `[AI_INSIGHTS] JSON parsed successfully for chunk ${i + 1}`,
+            {
+              requestId,
+              chunkIndex: i + 1,
+              hasSummary: !!result.summary,
+              hasTranscript: !!result.transcript,
+              hasInsights: !!result.insights,
+              hasMindMap: !!result.mindMap,
+              timestamp: new Date().toISOString(),
+            }
+          );
+
+          // Check if this is already a dashboard object
+          if (
+            result.summary &&
+            typeof result.summary === 'object' &&
+            result.summary.text
+          ) {
+            console.log(
+              `[AI_INSIGHTS] Returning dashboard object directly for chunk ${i + 1}`,
+              {
+                requestId,
+                chunkIndex: i + 1,
+                timestamp: new Date().toISOString(),
               }
-            } catch (fixError) {
-              console.error('Failed to fix truncated response:', fixError);
+            );
+            // This is already a dashboard object, return it directly
+            return { dashboard: result, tokensUsed: totalTokensUsed };
+          }
+
+          // Check if this has the full dashboard structure
+          if (
+            result.summary &&
+            result.transcript &&
+            result.insights &&
+            result.mindMap
+          ) {
+            console.log(
+              `[AI_INSIGHTS] Returning full dashboard structure for chunk ${i + 1}`,
+              {
+                requestId,
+                chunkIndex: i + 1,
+                timestamp: new Date().toISOString(),
+              }
+            );
+            return { dashboard: result, tokensUsed: totalTokensUsed };
+          }
+
+          // If it's the old format, store it for consolidation
+          allResults.push(result);
+          if (result.warnings) {
+            allWarnings.push(...result.warnings);
+          }
+        } catch (parseError) {
+          console.error(`[AI_INSIGHTS] JSON parsing error for chunk ${i + 1}`, {
+            requestId,
+            chunkIndex: i + 1,
+            error:
+              parseError instanceof Error
+                ? parseError.message
+                : 'Unknown parsing error',
+            responseLength: response.length,
+            responseStart: response.substring(0, 100),
+            responseEnd: response.substring(response.length - 100),
+            timestamp: new Date().toISOString(),
+          });
+
+          // Check if the response is truncated
+          if (
+            response.includes('"insights"') &&
+            response.includes('"mindMap"')
+          ) {
+            console.log(
+              `[AI_INSIGHTS] Attempting to fix truncated response for chunk ${i + 1}`,
+              {
+                requestId,
+                chunkIndex: i + 1,
+                timestamp: new Date().toISOString(),
+              }
+            );
+            // Try to find the end of the JSON
+            const lastBrace = response.lastIndexOf('}');
+            if (lastBrace > 0) {
+              const truncatedResponse = response.substring(0, lastBrace + 1);
+              try {
+                const fixedResult = JSON.parse(truncatedResponse);
+                console.log(
+                  `[AI_INSIGHTS] Successfully parsed truncated response for chunk ${i + 1}`,
+                  {
+                    requestId,
+                    chunkIndex: i + 1,
+                    timestamp: new Date().toISOString(),
+                  }
+                );
+                if (
+                  fixedResult.summary &&
+                  fixedResult.transcript &&
+                  fixedResult.insights &&
+                  fixedResult.mindMap
+                ) {
+                  return {
+                    dashboard: fixedResult,
+                    tokensUsed: totalTokensUsed,
+                  };
+                }
+              } catch (fixError) {
+                console.error(
+                  `[AI_INSIGHTS] Failed to fix truncated response for chunk ${i + 1}`,
+                  {
+                    requestId,
+                    chunkIndex: i + 1,
+                    error:
+                      fixError instanceof Error
+                        ? fixError.message
+                        : 'Unknown fix error',
+                    timestamp: new Date().toISOString(),
+                  }
+                );
+              }
             }
           }
+
+          // If JSON parsing fails, create a basic result
+          allResults.push({
+            topics: ['Análise de transcrição'],
+            summary: response,
+            warnings: ['Erro no parsing JSON - resultado em texto simples'],
+          });
         }
-        
-        // If JSON parsing fails, create a basic result
-        allResults.push({
-          topics: ['Análise de transcrição'],
-          summary: response,
-          warnings: ['Erro no parsing JSON - resultado em texto simples'],
+      } catch (openaiError) {
+        console.error(`[AI_INSIGHTS] OpenAI API error for chunk ${i + 1}`, {
+          requestId,
+          chunkIndex: i + 1,
+          error:
+            openaiError instanceof Error
+              ? openaiError.message
+              : 'Unknown OpenAI error',
+          stack: openaiError instanceof Error ? openaiError.stack : undefined,
+          timestamp: new Date().toISOString(),
         });
+        throw openaiError;
       }
     }
 
-    console.log('Number of chunks:', chunks.length);
-    console.log('Number of results:', allResults.length);
-    console.log('All results:', JSON.stringify(allResults, null, 2));
+    console.log(`[AI_INSIGHTS] All chunks processed, consolidating results`, {
+      requestId,
+      numberOfChunks: chunks.length,
+      numberOfResults: allResults.length,
+      totalTokensUsed,
+      timestamp: new Date().toISOString(),
+    });
 
     // Step 3: Consolidate results
     let consolidatedSummary = '';
@@ -803,68 +1578,103 @@ ${chunk}`;
     // If we have only one chunk, return the parsed result directly
     if (chunks.length === 1 && allResults.length === 1) {
       const result = allResults[0];
-      console.log('Single chunk result:', JSON.stringify(result, null, 2));
-      
+      console.log(`[AI_INSIGHTS] Single chunk result, processing directly`, {
+        requestId,
+        hasSummary: !!result.summary,
+        hasTranscript: !!result.transcript,
+        hasInsights: !!result.insights,
+        hasMindMap: !!result.mindMap,
+        timestamp: new Date().toISOString(),
+      });
+
       // If the result is already a dashboard object, return it
-      if (result.summary && typeof result.summary === 'object' && result.summary.text) {
-        console.log('Returning single chunk dashboard object');
+      if (
+        result.summary &&
+        typeof result.summary === 'object' &&
+        result.summary.text
+      ) {
+        console.log(`[AI_INSIGHTS] Returning single chunk dashboard object`, {
+          requestId,
+          timestamp: new Date().toISOString(),
+        });
         return { dashboard: result, tokensUsed: totalTokensUsed };
       }
-      
+
       // If the result has the full dashboard structure (summary, transcript, insights, mindMap)
-      if (result.summary && result.transcript && result.insights && result.mindMap) {
-        console.log('Returning full dashboard structure');
+      if (
+        result.summary &&
+        result.transcript &&
+        result.insights &&
+        result.mindMap
+      ) {
+        console.log(`[AI_INSIGHTS] Returning full dashboard structure`, {
+          requestId,
+          timestamp: new Date().toISOString(),
+        });
         return { dashboard: result, tokensUsed: totalTokensUsed };
       }
-      
+
       // If it's the old format, convert to dashboard format
       if (result.summary && typeof result.summary === 'string') {
-        console.log('Converting old format to dashboard format');
+        console.log(`[AI_INSIGHTS] Converting old format to dashboard format`, {
+          requestId,
+          timestamp: new Date().toISOString(),
+        });
         return {
           dashboard: {
             summary: {
               text: result.summary,
               metrics: [
-                { label: "Duration", value: "N/A" },
-                { label: "Main Topics", value: allTopics.size.toString() },
-                { label: "Key Insights", value: "N/A" },
-                { label: "Complexity", value: "Intermediate" }
+                { label: 'Duration', value: 'N/A' },
+                { label: 'Main Topics', value: allTopics.size.toString() },
+                { label: 'Key Insights', value: 'N/A' },
+                { label: 'Complexity', value: 'Intermediate' },
               ],
-              topics: Array.from(allTopics)
+              topics: Array.from(allTopics),
             },
             transcript: [
-              { time: "00:00", text: "Transcript processing completed" }
+              { time: '00:00', text: 'Transcript processing completed' },
             ],
             insights: {
               chips: [
-                { label: `${allTopics.size} topics extracted`, variant: "secondary" },
-                { label: "Processing completed", variant: "secondary" }
+                {
+                  label: `${allTopics.size} topics extracted`,
+                  variant: 'secondary',
+                },
+                { label: 'Processing completed', variant: 'secondary' },
               ],
               sections: [
                 {
-                  title: "Key Insights",
-                  icon: "💡",
-                  items: [
-                    { text: "Video analysis completed", confidence: 90 }
-                  ]
-                }
-              ]
+                  title: 'Key Insights',
+                  icon: '💡',
+                  items: [{ text: 'Video analysis completed', confidence: 90 }],
+                },
+              ],
             },
             mindMap: {
-              root: "Video Insights",
-              branches: Array.from(allTopics).map(topic => ({
+              root: 'Video Insights',
+              branches: Array.from(allTopics).map((topic) => ({
                 label: topic,
-                children: []
-              }))
-            }
+                children: [],
+              })),
+            },
           },
-          tokensUsed: totalTokensUsed
+          tokensUsed: totalTokensUsed,
         };
       }
     }
 
     // If we have multiple chunks, create a final consolidation
     if (chunks.length > 1) {
+      console.log(
+        `[AI_INSIGHTS] Multiple chunks detected, creating consolidation`,
+        {
+          requestId,
+          numberOfChunks: chunks.length,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
       const consolidationPrompt = `Consolide os seguintes resultados em um único resumo conciso, seguindo o formato JSON abaixo para dashboard e mind map. Retorne apenas o JSON, sem markdown ou texto extra.
 
 ### Required JSON Structure:
@@ -879,123 +1689,218 @@ Resultados para consolidar:
 ${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
 `;
 
-      const consolidationCompletion = await openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Você é um assistente especializado em consolidação de resumos. Sempre retorne JSON válido.',
-          },
-          {
-            role: 'user',
-            content: consolidationPrompt,
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: 300,
-      });
+      try {
+        console.log(`[AI_INSIGHTS] Sending consolidation request to OpenAI`, {
+          requestId,
+          consolidationPromptLength: consolidationPrompt.length,
+          timestamp: new Date().toISOString(),
+        });
 
-      // Add consolidation tokens to total
-      totalTokensUsed += consolidationCompletion.usage?.total_tokens || 0;
+        const consolidationCompletion = await openai.chat.completions.create({
+          model: 'gpt-4-turbo-preview',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Você é um assistente especializado em consolidação de análises de vídeo. Sempre retorne JSON válido e completo.',
+            },
+            {
+              role: 'user',
+              content: consolidationPrompt,
+            },
+          ],
+          temperature: 0.2,
+          max_tokens: 2000,
+        });
 
-      const consolidationResponse =
-        consolidationCompletion.choices[0]?.message?.content;
+        const consolidationTokens =
+          consolidationCompletion.usage?.total_tokens || 0;
+        totalTokensUsed += consolidationTokens;
 
-      if (consolidationResponse) {
-        try {
-          const consolidated = JSON.parse(consolidationResponse);
-          return { dashboard: consolidated, tokensUsed: totalTokensUsed }; // Return the full dashboard object
-        } catch {
-          // Fallback to manual consolidation
+        console.log(`[AI_INSIGHTS] Consolidation response received`, {
+          requestId,
+          consolidationTokens,
+          totalTokensUsed,
+          timestamp: new Date().toISOString(),
+        });
+
+        const consolidationResponse =
+          consolidationCompletion.choices[0]?.message?.content;
+
+        if (!consolidationResponse) {
+          throw new Error('Failed to generate consolidation');
         }
+
+        try {
+          const consolidatedResult = JSON.parse(consolidationResponse);
+          console.log(`[AI_INSIGHTS] Consolidation JSON parsed successfully`, {
+            requestId,
+            hasSummary: !!consolidatedResult.summary,
+            hasTranscript: !!consolidatedResult.transcript,
+            hasInsights: !!consolidatedResult.insights,
+            hasMindMap: !!consolidatedResult.mindMap,
+            timestamp: new Date().toISOString(),
+          });
+
+          return { dashboard: consolidatedResult, tokensUsed: totalTokensUsed };
+        } catch (consolidationParseError) {
+          console.error(`[AI_INSIGHTS] Consolidation JSON parsing error`, {
+            requestId,
+            error:
+              consolidationParseError instanceof Error
+                ? consolidationParseError.message
+                : 'Unknown parsing error',
+            responseLength: consolidationResponse.length,
+            timestamp: new Date().toISOString(),
+          });
+          throw new Error('Failed to parse consolidation response');
+        }
+      } catch (consolidationError) {
+        console.error(`[AI_INSIGHTS] Consolidation failed`, {
+          requestId,
+          error:
+            consolidationError instanceof Error
+              ? consolidationError.message
+              : 'Unknown consolidation error',
+          timestamp: new Date().toISOString(),
+        });
+        throw consolidationError;
       }
     }
 
-    // Return consolidated results as dashboard object
-    return {
-      dashboard: {
-        summary: {
-          text: consolidatedSummary.trim(),
-          metrics: [
-            { label: "Duration", value: "N/A" },
-            { label: "Main Topics", value: allTopics.size.toString() },
-            { label: "Key Insights", value: "N/A" },
-            { label: "Complexity", value: "Intermediate" }
-          ],
-          topics: Array.from(allTopics)
-        },
-        transcript: [
-          { time: "00:00", text: "Transcript processing completed" }
+    // Fallback: create a basic dashboard
+    console.log(`[AI_INSIGHTS] Creating fallback dashboard`, {
+      requestId,
+      timestamp: new Date().toISOString(),
+    });
+
+    const fallbackDashboard = {
+      summary: {
+        text: consolidatedSummary || 'Video analysis completed',
+        metrics: [
+          { label: 'Duration', value: 'N/A' },
+          { label: 'Main Topics', value: allTopics.size.toString() },
+          { label: 'Key Insights', value: 'N/A' },
+          { label: 'Complexity', value: 'Intermediate' },
         ],
-        insights: {
-          chips: [
-            { label: `${allTopics.size} topics extracted`, variant: "secondary" },
-            { label: "Processing completed", variant: "secondary" }
-          ],
-          sections: [
-            {
-              title: "Key Insights",
-              icon: "💡",
-              items: [
-                { text: "Video analysis completed", confidence: 90 }
-              ]
-            }
-          ]
-        },
-        mindMap: {
-          root: "Video Insights",
-          branches: Array.from(allTopics).map(topic => ({
-            label: topic,
-            children: []
-          }))
-        }
+        topics: Array.from(allTopics),
       },
-      tokensUsed: totalTokensUsed
+      transcript: [{ time: '00:00', text: 'Transcript processing completed' }],
+      insights: {
+        chips: [
+          { label: `${allTopics.size} topics extracted`, variant: 'secondary' },
+          { label: 'Processing completed', variant: 'secondary' },
+        ],
+        sections: [
+          {
+            title: 'Key Insights',
+            icon: '💡',
+            items: [{ text: 'Video analysis completed', confidence: 90 }],
+          },
+        ],
+      },
+      mindMap: {
+        root: 'Video Insights',
+        branches: Array.from(allTopics).map((topic) => ({
+          label: topic,
+          children: [],
+        })),
+      },
     };
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[AI_INSIGHTS] AI insights generation completed successfully`, {
+      requestId,
+      totalTime: `${totalTime}ms`,
+      totalTokensUsed,
+      numberOfChunks: chunks.length,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { dashboard: fallbackDashboard, tokensUsed: totalTokensUsed };
   } catch (error) {
-    // Fallback to simple dashboard structure
-    return {
-      dashboard: {
-        summary: {
-          text: "Análise de transcrição disponível",
-          metrics: [
-            { label: "Duration", value: "N/A" },
-            { label: "Main Topics", value: "1" },
-            { label: "Key Insights", value: "1" },
-            { label: "Complexity", value: "Basic" }
-          ],
-          topics: ["Transcrição processada"]
-        },
-        transcript: [
-          { time: "00:00", text: "Transcript processing completed" }
-        ],
-        insights: {
-          chips: [
-            { label: "1 topic extracted", variant: "secondary" },
-            { label: "Basic analysis", variant: "secondary" }
-          ],
-          sections: [
-            {
-              title: "Processing Status",
-              icon: "⚠️",
-              items: [
-                { text: "Erro na análise detalhada - usando resumo básico", confidence: 50 }
-              ]
-            }
-          ]
-        },
-        mindMap: {
-          root: "Video Insights",
-          branches: [
-            {
-              label: "Transcrição processada",
-              children: []
-            }
-          ]
-        }
-      },
-      tokensUsed: 0 // No tokens used in fallback
-    };
+    const totalTime = Date.now() - startTime;
+    const errorMessage =
+      error instanceof Error ? error.message : 'AI insights generation failed';
+
+    console.error(`[AI_INSIGHTS] AI insights generation failed`, {
+      requestId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalTime: `${totalTime}ms`,
+      totalTokensUsed,
+      timestamp: new Date().toISOString(),
+    });
+
+    throw error;
   }
+}
+
+// Utility function to get failed videos with error details
+export async function getFailedVideos(
+  userId?: number,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{
+  videos: VideoEntity[];
+  total: number;
+  errorSummary: {
+    downloadFailures: number;
+    transcriptionFailures: number;
+    aiProcessingFailures: number;
+    creditFailures: number;
+    unknownFailures: number;
+  };
+}> {
+  const queryBuilder = VideoRepository.createQueryBuilder('video')
+    .where('video.status = :status', { status: 'failed' })
+    .orderBy('video.updatedAt', 'DESC');
+
+  if (userId) {
+    queryBuilder.andWhere('video.userId = :userId', { userId });
+  }
+
+  const videos = await queryBuilder.limit(limit).offset(offset).getMany();
+
+  const total = await queryBuilder.getCount();
+
+  // Analyze error patterns
+  const errorSummary = {
+    downloadFailures: 0,
+    transcriptionFailures: 0,
+    aiProcessingFailures: 0,
+    creditFailures: 0,
+    unknownFailures: 0,
+  };
+
+  videos.forEach((video) => {
+    const errorMessage = video.errorMessage?.toLowerCase() || '';
+
+    if (
+      errorMessage.includes('download') ||
+      errorMessage.includes('videodowncut')
+    ) {
+      errorSummary.downloadFailures++;
+    } else if (
+      errorMessage.includes('transcription') ||
+      errorMessage.includes('transcribe')
+    ) {
+      errorSummary.transcriptionFailures++;
+    } else if (
+      errorMessage.includes('ai') ||
+      errorMessage.includes('openai') ||
+      errorMessage.includes('insights')
+    ) {
+      errorSummary.aiProcessingFailures++;
+    } else if (
+      errorMessage.includes('credit') ||
+      errorMessage.includes('insufficient')
+    ) {
+      errorSummary.creditFailures++;
+    } else {
+      errorSummary.unknownFailures++;
+    }
+  });
+
+  return { videos, total, errorSummary };
 }
