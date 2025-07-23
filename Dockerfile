@@ -1,33 +1,49 @@
-# Etapa de build: compila o código TypeScript
-FROM node:18-alpine as builder
+# Stage 1: Build
+FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Copia os arquivos de dependência para aproveitar cache
+# Install dependencies (use npm ci for reproducibility)
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm ci
 
-# Copia o restante do código do projeto
+# Copy source code
 COPY . .
 
-# Compila o projeto (utilizando o tsc, que está disponível via devDependency)
-RUN npx tsc --project tsconfig.json
+# Build TypeScript (output to dist)
+RUN npx tsc --project tsconfig.json --outDir dist
 
-# Etapa de produção
+# Stage 2: Production
 FROM node:18-alpine
 WORKDIR /app
 
-# Copia os arquivos de dependência e instala apenas as dependências de produção
+# Create a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Install only production dependencies
 COPY package.json package-lock.json ./
-RUN npm install --only=production
+RUN npm ci --only=production
 
-# Copia os arquivos compilados da etapa de build
-COPY --from=builder /app/build ./build
+# Copy built code from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
 
-# Define variável de ambiente para produção
+# Copy any necessary config files (e.g., migrations, entities, etc.)
+COPY --from=builder /app/src/migrations ./src/migrations
+COPY --from=builder /app/src/entities ./src/entities
+
+# Set environment variables
 ENV NODE_ENV=production
+ENV PORT=3000
 
-# Expõe a porta em que o servidor estará ouvindo (conforme definido no código, geralmente 3000)
-EXPOSE 3000
+# Expose the port (can be overridden by env)
+EXPOSE $PORT
 
-# Inicia a aplicação usando o arquivo compilado (local.ts gera build/local.js)
-CMD ["node", "build/local.js"]
+# Healthcheck (optional, for Docker Compose/Swarm/K8s)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:$PORT/healthcheck || exit 1
+
+# Use non-root user
+USER appuser
+
+# Start the app
+CMD ["node", "dist/local.js"]
