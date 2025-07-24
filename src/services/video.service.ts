@@ -1218,7 +1218,7 @@ async function generateAIInsights(
     // Step 2: Check if text needs to be split into chunks
     const tokenCount = estimateTokenCount(deduplicatedText);
     const chunks =
-      tokenCount > 2000
+      tokenCount > 1500
         ? splitTextIntoChunks(deduplicatedText)
         : [deduplicatedText];
 
@@ -1355,7 +1355,7 @@ ${chunk}`;
             },
           ],
           temperature: 0.2,
-          max_tokens: 2000, // Increased from 500 to ensure complete response
+          max_tokens: 6000, // Increased from 500 to ensure complete response
           // Removed stop parameter to prevent truncation
         });
 
@@ -1710,7 +1710,7 @@ ${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
             },
           ],
           temperature: 0.2,
-          max_tokens: 2000,
+          max_tokens: 6000,
         });
 
         const consolidationTokens =
