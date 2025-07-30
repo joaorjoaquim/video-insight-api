@@ -463,136 +463,39 @@ export async function checkTranscriptionStatus(
     const transcription = await pollTranscriptionStatus(video.transcriptionId);
 
     if (transcription) {
-      console.log(
-        `[TRANSCRIPTION_STATUS] Transcription received, starting AI processing`,
-        {
-          videoId,
-          transcriptionLength: transcription.length,
-          timestamp: new Date().toISOString(),
-        }
-      );
+      console.log(`[TRANSCRIPTION_STATUS] Full transcription received`, {
+        videoId,
+        transcriptionLength: transcription.length,
+        timestamp: new Date().toISOString(),
+      });
 
-      // Track tokens used and spend credits
-      let totalTokensUsed = 0;
-      let dashboard: any;
+      // Step 1: Generate full transcript from raw text (0 AI tokens)
+      const fullTranscript = formatRawTranscription(transcription);
+
+      console.log(`[TRANSCRIPTION_STATUS] Raw transcript formatted`, {
+        videoId,
+        originalLength: transcription.length,
+        formattedSegments: fullTranscript.length,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Step 2: Generate AI insights only (summary, insights, mindMap)
+      let aiDashboard: any;
+      let tokensUsed = 0;
 
       try {
-        // Generate AI insights (original function)
-        const { dashboard: generatedDashboard, tokensUsed } =
-          await generateAIInsights(transcription);
+        const aiResult = await generateAIInsights(transcription);
+        aiDashboard = aiResult.dashboard;
+        tokensUsed = aiResult.tokensUsed;
 
-        // Use actual tokens from OpenAI API
-        totalTokensUsed = tokensUsed;
-
-        console.log(
-          `[TRANSCRIPTION_STATUS] AI insights generated successfully`,
-          {
-            videoId,
-            tokensUsed: totalTokensUsed,
-            hasDashboard: !!generatedDashboard,
-            timestamp: new Date().toISOString(),
-          }
-        );
-
-        // Calculate final credit cost based on actual tokens used
-        const finalCreditsCost = calculateCreditsFromTokens(totalTokensUsed);
-
-        // Update the initial estimated transaction with actual values
-        // Find the initial transaction for this video
-        const initialTransaction = await CreditTransactionRepository.findOne({
-          where: {
-            userId: video.userId,
-            referenceId: videoId.toString(),
-            referenceType: 'video_submission_estimated',
-          },
-          order: { createdAt: 'DESC' },
+        console.log(`[TRANSCRIPTION_STATUS] AI insights generated`, {
+          videoId,
+          tokensUsed,
+          hasSummary: !!aiDashboard.summary,
+          hasInsights: !!aiDashboard.insights,
+          hasMindMap: !!aiDashboard.mindMap,
+          timestamp: new Date().toISOString(),
         });
-
-        if (initialTransaction) {
-          console.log(
-            `[TRANSCRIPTION_STATUS] Updating credit transaction with actual costs`,
-            {
-              videoId,
-              userId: video.userId,
-              estimatedAmount: Math.abs(initialTransaction.amount),
-              actualAmount: finalCreditsCost,
-              tokensUsed: totalTokensUsed,
-              timestamp: new Date().toISOString(),
-            }
-          );
-
-          // Update the initial transaction with actual values
-          await CreditTransactionRepository.update(initialTransaction.id, {
-            amount: -finalCreditsCost, // Update to actual cost
-            description: `AI video analysis (${totalTokensUsed} tokens)`,
-            referenceType: 'video_ai_processing',
-            tokensUsed: totalTokensUsed,
-          });
-        } else {
-          console.warn(
-            `[TRANSCRIPTION_STATUS] Initial transaction not found, creating new one`,
-            {
-              videoId,
-              userId: video.userId,
-              finalCreditsCost,
-              tokensUsed: totalTokensUsed,
-              timestamp: new Date().toISOString(),
-            }
-          );
-
-          // Fallback: create new transaction if initial not found
-          const creditSpent = await spendCredits({
-            userId: video.userId,
-            amount: finalCreditsCost,
-            description: `AI video analysis (${totalTokensUsed} tokens)`,
-            referenceId: videoId.toString(),
-            referenceType: 'video_ai_processing',
-            tokensUsed: totalTokensUsed,
-          });
-
-          if (!creditSpent) {
-            console.error(
-              `[TRANSCRIPTION_STATUS] Insufficient credits for AI processing`,
-              {
-                videoId,
-                userId: video.userId,
-                requiredCredits: finalCreditsCost,
-                tokensUsed: totalTokensUsed,
-                timestamp: new Date().toISOString(),
-              }
-            );
-
-            // User doesn't have enough credits
-            await updateVideo(videoId, {
-              status: 'failed',
-              errorMessage: 'Insufficient credits for AI processing',
-            });
-            return { status: 'failed' };
-          }
-        }
-
-        await updateVideo(videoId, {
-          transcription,
-          dashboard: generatedDashboard, // Save the full dashboard object
-          tokensUsed: totalTokensUsed,
-          creditsCost: finalCreditsCost,
-          status: 'completed',
-        });
-
-        const totalTime = Date.now() - startTime;
-        console.log(
-          `[TRANSCRIPTION_STATUS] Video processing completed successfully`,
-          {
-            videoId,
-            userId: video.userId,
-            totalTime: `${totalTime}ms`,
-            tokensUsed: totalTokensUsed,
-            creditsCost: finalCreditsCost,
-            timestamp: new Date().toISOString(),
-          }
-        );
-
-        return { status: 'completed', dashboard: generatedDashboard };
       } catch (aiError) {
         const aiErrorTime = Date.now() - startTime;
         const errorMessage =
@@ -648,6 +551,109 @@ export async function checkTranscriptionStatus(
         });
         throw aiError;
       }
+
+      // Step 3: Combine: full transcript + AI insights
+      const completeDashboard = {
+        ...aiDashboard,
+        transcript: fullTranscript, // Always 100% complete from raw text
+      };
+
+      // Calculate final credit cost
+      const finalCreditsCost = calculateCreditsFromTokens(tokensUsed);
+
+      // Update the initial transaction with actual values
+      const initialTransaction = await CreditTransactionRepository.findOne({
+        where: {
+          userId: video.userId,
+          referenceId: videoId.toString(),
+          referenceType: 'video_submission_estimated',
+        },
+        order: { createdAt: 'DESC' },
+      });
+
+      if (initialTransaction) {
+        console.log(
+          `[TRANSCRIPTION_STATUS] Updating credit transaction with actual costs`,
+          {
+            videoId,
+            userId: video.userId,
+            estimatedAmount: Math.abs(initialTransaction.amount),
+            actualAmount: finalCreditsCost,
+            tokensUsed,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        // Update the initial transaction with actual values
+        await CreditTransactionRepository.update(initialTransaction.id, {
+          amount: -finalCreditsCost, // Update to actual cost
+          description: `AI video analysis (${tokensUsed} tokens)`,
+          referenceType: 'video_ai_processing',
+          tokensUsed,
+        });
+      } else {
+        console.warn(
+          `[TRANSCRIPTION_STATUS] Initial transaction not found, creating new one`,
+          {
+            videoId,
+            userId: video.userId,
+            finalCreditsCost,
+            tokensUsed,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        // Fallback: create new transaction if initial not found
+        const creditSpent = await spendCredits({
+          userId: video.userId,
+          amount: finalCreditsCost,
+          description: `AI video analysis (${tokensUsed} tokens)`,
+          referenceId: videoId.toString(),
+          referenceType: 'video_ai_processing',
+          tokensUsed,
+        });
+
+        if (!creditSpent) {
+          console.error(
+            `[TRANSCRIPTION_STATUS] Insufficient credits for AI processing`,
+            {
+              videoId,
+              userId: video.userId,
+              requiredCredits: finalCreditsCost,
+              tokensUsed,
+              timestamp: new Date().toISOString(),
+            }
+          );
+
+          // User doesn't have enough credits
+          await updateVideo(videoId, {
+            status: 'failed',
+            errorMessage: 'Insufficient credits for AI processing',
+          });
+          return { status: 'failed' };
+        }
+      }
+
+      // Update database
+      await updateVideo(videoId, {
+        transcription,
+        dashboard: completeDashboard,
+        tokensUsed,
+        creditsCost: finalCreditsCost,
+        status: 'completed',
+      });
+
+      const totalTime = Date.now() - startTime;
+      console.log(`[TRANSCRIPTION_STATUS] Complete processing successful`, {
+        videoId,
+        userId: video.userId,
+        totalTime: `${totalTime}ms`,
+        tokensUsed,
+        transcriptLength: fullTranscript.length,
+        timestamp: new Date().toISOString(),
+      });
+
+      return { status: 'completed', dashboard: completeDashboard };
     } else {
       console.log(
         `[TRANSCRIPTION_STATUS] No transcription received, checking service status`,
@@ -1188,7 +1194,7 @@ async function generateAIInsights(
   const requestId = `ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   let totalTokensUsed = 0;
 
-  console.log(`[AI_INSIGHTS] Starting AI insights generation`, {
+  console.log(`[AI_INSIGHTS] Starting optimized AI processing`, {
     requestId,
     transcriptionLength: transcription.length,
     estimatedTokens: estimateTokenCount(transcription),
@@ -1196,6 +1202,21 @@ async function generateAIInsights(
   });
 
   try {
+    // Step 0: Detect language
+    console.log(`[AI_INSIGHTS] Step 0: Detecting language`, {
+      requestId,
+      timestamp: new Date().toISOString(),
+    });
+
+    const language = await detectLanguage(transcription);
+    const languagePrompts = getLanguagePrompts(language);
+
+    console.log(`[AI_INSIGHTS] Language detection completed`, {
+      requestId,
+      detectedLanguage: language,
+      timestamp: new Date().toISOString(),
+    });
+
     // Step 1: Deduplication
     console.log(`[AI_INSIGHTS] Step 1: Deduplicating transcription`, {
       requestId,
@@ -1215,14 +1236,14 @@ async function generateAIInsights(
       timestamp: new Date().toISOString(),
     });
 
-    // Step 2: Check if text needs to be split into chunks
+    // Step 2: Create robust chunks for AI processing
     const tokenCount = estimateTokenCount(deduplicatedText);
     const chunks =
-      tokenCount > 1500
-        ? splitTextIntoChunks(deduplicatedText)
+      tokenCount > 2000
+        ? createRobustChunks(deduplicatedText, 1500)
         : [deduplicatedText];
 
-    console.log(`[AI_INSIGHTS] Step 2: Text chunking`, {
+    console.log(`[AI_INSIGHTS] Step 2: Text chunking for AI`, {
       requestId,
       totalTokens: tokenCount,
       numberOfChunks: chunks.length,
@@ -1230,600 +1251,54 @@ async function generateAIInsights(
       timestamp: new Date().toISOString(),
     });
 
-    const allResults: any[] = [];
-    const allWarnings: string[] = [];
-    let totalTokensUsed = 0;
+    // Step 3: Process all chunks with retry logic for AI insights only
+    const allResults = await processAllChunksWithRetry(
+      chunks,
+      requestId,
+      languagePrompts
+    );
+    totalTokensUsed = allResults.totalTokensUsed;
 
-    // Process each chunk
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkStartTime = Date.now();
-      const chunk = chunks[i];
-      const chunkTokenCount = estimateTokenCount(chunk);
+    // Step 4: Consolidate AI results (summary, insights, mindMap only)
+    const consolidatedAI = await consolidateAIResults(
+      allResults.results,
+      requestId
+    );
 
-      console.log(`[AI_INSIGHTS] Processing chunk ${i + 1}/${chunks.length}`, {
-        requestId,
-        chunkIndex: i + 1,
-        chunkLength: chunk.length,
-        estimatedTokens: chunkTokenCount,
-        timestamp: new Date().toISOString(),
-      });
-
-      if (chunkTokenCount > 2000) {
-        const warning = `Chunk ${i + 1} muito longo (${chunkTokenCount} tokens) - resumido`;
-        allWarnings.push(warning);
-        console.warn(`[AI_INSIGHTS] Large chunk detected`, {
-          requestId,
-          chunkIndex: i + 1,
-          chunkTokens: chunkTokenCount,
-          warning,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      const prompt = `You are an expert video summarizer and insight extractor. Given a video transcription, return a JSON object with the following structure, designed for a modern, interactive web dashboard. The output should be concise, well-structured, and visually rich for both list and mind map views.
-
-Return ONLY valid JSON, no markdown or code blocks.
-
-### Required JSON Structure:
-{
-  "summary": {
-    "text": "A concise, readable summary of the video (2-4 paragraphs, no bullet points).",
-    "metrics": [
-      { "label": "Duration", "value": "12:45" },
-      { "label": "Main Topics", "value": "5" },
-      { "label": "Key Insights", "value": "12" },
-      { "label": "Complexity", "value": "Intermediate" }
-    ],
-    "topics": [
-      "Main topic 1",
-      "Main topic 2"
-    ]
-  },
-  "transcript": [
-    { "time": "00:00", "text": "First sentences..." }
-    // ...
-  ],
-  "insights": {
-    "chips": [
-      { "label": "15 insights extracted", "variant": "secondary" },
-      { "label": "5 main topics", "variant": "secondary" },
-      { "label": "3 key takeaways", "variant": "destructive" },
-      { "label": "87% confidence", "variant": "secondary" }
-    ],
-    "sections": [
-      {
-        "title": "Section Title",
-        "icon": "💻",
-        "items": [
-          { "text": "Insight text", "confidence": 95 },
-          { "text": "Another insight", "key": true }
-        ]
-      }
-      // ...
-    ]
-  },
-  "mindMap": {
-    "root": "Video Insights",
-    "branches": [
-      {
-        "label": "Branch 1",
-        "children": [
-          { "label": "Child 1" },
-          { "label": "Child 2" }
-        ]
-      }
-      // ...
-    ]
-  }
-}
-
-- summary.text: A readable, human-like summary (not a list).
-- summary.metrics: Always include duration, main topics, key insights, and complexity.
-- summary.topics: Main topics as strings.
-- transcript: Array of {time, text} blocks, 1-3 sentences each, covering the whole video.
-- insights.chips: Short badges for quick stats.
-- insights.sections: Each with a title, emoji icon, and insight items. Items can have confidence, key, or quote.
-- mindMap: Hierarchical structure for mind map view (root, branches, children).
-
-Return only the JSON object, no extra text.
-
-Texto para análise:
-${chunk}`;
-
-      console.log(
-        `[AI_INSIGHTS] Sending request to OpenAI for chunk ${i + 1}`,
+    // Step 5: Validate AI processing completeness
+    const coverage = validateAICoverage(deduplicatedText, consolidatedAI);
+    if (coverage < 0.3) {
+      // Reduced from 0.9 to 0.3 (30% coverage is reasonable)
+      console.warn(
+        `[AI_INSIGHTS] Low AI coverage detected: ${(coverage * 100).toFixed(1)}%`,
         {
           requestId,
-          chunkIndex: i + 1,
-          promptLength: prompt.length,
+          coverage: `${(coverage * 100).toFixed(1)}%`,
           timestamp: new Date().toISOString(),
         }
       );
-
-      try {
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4-turbo-preview',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Você é um assistente especializado em análise de transcrições de vídeo. Sempre retorne JSON válido e completo.',
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          temperature: 0.2,
-          max_tokens: 6000, // Increased from 500 to ensure complete response
-          // Removed stop parameter to prevent truncation
-        });
-
-        const chunkTime = Date.now() - chunkStartTime;
-        const tokensUsed = completion.usage?.total_tokens || 0;
-        totalTokensUsed += tokensUsed;
-
-        console.log(
-          `[AI_INSIGHTS] OpenAI response received for chunk ${i + 1}`,
-          {
-            requestId,
-            chunkIndex: i + 1,
-            responseTime: `${chunkTime}ms`,
-            tokensUsed,
-            totalTokensUsed,
-            timestamp: new Date().toISOString(),
-          }
-        );
-
-        // Track actual tokens used from OpenAI response
-        const response = completion.choices[0]?.message?.content;
-
-        if (!response) {
-          console.error(
-            `[AI_INSIGHTS] Empty response from OpenAI for chunk ${i + 1}`,
-            {
-              requestId,
-              chunkIndex: i + 1,
-              timestamp: new Date().toISOString(),
-            }
-          );
-          throw new Error('Failed to generate AI insights for chunk');
-        }
-
-        // Check if response is complete JSON
-        const trimmedResponse = response.trim();
-        if (!trimmedResponse.endsWith('}')) {
-          console.error(
-            `[AI_INSIGHTS] Incomplete JSON response detected for chunk ${i + 1}`,
-            {
-              requestId,
-              chunkIndex: i + 1,
-              responseEndsWith: trimmedResponse.slice(-50),
-              responseLength: response.length,
-              timestamp: new Date().toISOString(),
-            }
-          );
-          throw new Error('Incomplete JSON response from OpenAI');
-        }
-
-        try {
-          const result = JSON.parse(response);
-          console.log(
-            `[AI_INSIGHTS] JSON parsed successfully for chunk ${i + 1}`,
-            {
-              requestId,
-              chunkIndex: i + 1,
-              hasSummary: !!result.summary,
-              hasTranscript: !!result.transcript,
-              hasInsights: !!result.insights,
-              hasMindMap: !!result.mindMap,
-              timestamp: new Date().toISOString(),
-            }
-          );
-
-          // Check if this is already a dashboard object
-          if (
-            result.summary &&
-            typeof result.summary === 'object' &&
-            result.summary.text
-          ) {
-            console.log(
-              `[AI_INSIGHTS] Returning dashboard object directly for chunk ${i + 1}`,
-              {
-                requestId,
-                chunkIndex: i + 1,
-                timestamp: new Date().toISOString(),
-              }
-            );
-            // This is already a dashboard object, return it directly
-            return { dashboard: result, tokensUsed: totalTokensUsed };
-          }
-
-          // Check if this has the full dashboard structure
-          if (
-            result.summary &&
-            result.transcript &&
-            result.insights &&
-            result.mindMap
-          ) {
-            console.log(
-              `[AI_INSIGHTS] Returning full dashboard structure for chunk ${i + 1}`,
-              {
-                requestId,
-                chunkIndex: i + 1,
-                timestamp: new Date().toISOString(),
-              }
-            );
-            return { dashboard: result, tokensUsed: totalTokensUsed };
-          }
-
-          // If it's the old format, store it for consolidation
-          allResults.push(result);
-          if (result.warnings) {
-            allWarnings.push(...result.warnings);
-          }
-        } catch (parseError) {
-          console.error(`[AI_INSIGHTS] JSON parsing error for chunk ${i + 1}`, {
-            requestId,
-            chunkIndex: i + 1,
-            error:
-              parseError instanceof Error
-                ? parseError.message
-                : 'Unknown parsing error',
-            responseLength: response.length,
-            responseStart: response.substring(0, 100),
-            responseEnd: response.substring(response.length - 100),
-            timestamp: new Date().toISOString(),
-          });
-
-          // Check if the response is truncated
-          if (
-            response.includes('"insights"') &&
-            response.includes('"mindMap"')
-          ) {
-            console.log(
-              `[AI_INSIGHTS] Attempting to fix truncated response for chunk ${i + 1}`,
-              {
-                requestId,
-                chunkIndex: i + 1,
-                timestamp: new Date().toISOString(),
-              }
-            );
-            // Try to find the end of the JSON
-            const lastBrace = response.lastIndexOf('}');
-            if (lastBrace > 0) {
-              const truncatedResponse = response.substring(0, lastBrace + 1);
-              try {
-                const fixedResult = JSON.parse(truncatedResponse);
-                console.log(
-                  `[AI_INSIGHTS] Successfully parsed truncated response for chunk ${i + 1}`,
-                  {
-                    requestId,
-                    chunkIndex: i + 1,
-                    timestamp: new Date().toISOString(),
-                  }
-                );
-                if (
-                  fixedResult.summary &&
-                  fixedResult.transcript &&
-                  fixedResult.insights &&
-                  fixedResult.mindMap
-                ) {
-                  return {
-                    dashboard: fixedResult,
-                    tokensUsed: totalTokensUsed,
-                  };
-                }
-              } catch (fixError) {
-                console.error(
-                  `[AI_INSIGHTS] Failed to fix truncated response for chunk ${i + 1}`,
-                  {
-                    requestId,
-                    chunkIndex: i + 1,
-                    error:
-                      fixError instanceof Error
-                        ? fixError.message
-                        : 'Unknown fix error',
-                    timestamp: new Date().toISOString(),
-                  }
-                );
-              }
-            }
-          }
-
-          // If JSON parsing fails, create a basic result
-          allResults.push({
-            topics: ['Análise de transcrição'],
-            summary: response,
-            warnings: ['Erro no parsing JSON - resultado em texto simples'],
-          });
-        }
-      } catch (openaiError) {
-        console.error(`[AI_INSIGHTS] OpenAI API error for chunk ${i + 1}`, {
-          requestId,
-          chunkIndex: i + 1,
-          error:
-            openaiError instanceof Error
-              ? openaiError.message
-              : 'Unknown OpenAI error',
-          stack: openaiError instanceof Error ? openaiError.stack : undefined,
-          timestamp: new Date().toISOString(),
-        });
-        throw openaiError;
-      }
+      // Don't throw error, just log warning and continue
     }
 
-    console.log(`[AI_INSIGHTS] All chunks processed, consolidating results`, {
-      requestId,
-      numberOfChunks: chunks.length,
-      numberOfResults: allResults.length,
-      totalTokensUsed,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Step 3: Consolidate results
-    let consolidatedSummary = '';
-    const allTopics = new Set<string>();
-    const consolidatedWarnings = [...allWarnings];
-
-    for (const result of allResults) {
-      if (result.summary) {
-        consolidatedSummary += result.summary + ' ';
-      }
-      if (result.topics) {
-        result.topics.forEach((topic: string) => allTopics.add(topic));
-      }
-    }
-
-    // If we have only one chunk, return the parsed result directly
-    if (chunks.length === 1 && allResults.length === 1) {
-      const result = allResults[0];
-      console.log(`[AI_INSIGHTS] Single chunk result, processing directly`, {
+    console.log(
+      `[AI_INSIGHTS] Optimized AI processing completed successfully`,
+      {
         requestId,
-        hasSummary: !!result.summary,
-        hasTranscript: !!result.transcript,
-        hasInsights: !!result.insights,
-        hasMindMap: !!result.mindMap,
+        totalTime: `${Date.now() - startTime}ms`,
+        totalTokensUsed,
+        coverage: `${(coverage * 100).toFixed(1)}%`,
+        language,
         timestamp: new Date().toISOString(),
-      });
-
-      // If the result is already a dashboard object, return it
-      if (
-        result.summary &&
-        typeof result.summary === 'object' &&
-        result.summary.text
-      ) {
-        console.log(`[AI_INSIGHTS] Returning single chunk dashboard object`, {
-          requestId,
-          timestamp: new Date().toISOString(),
-        });
-        return { dashboard: result, tokensUsed: totalTokensUsed };
       }
+    );
 
-      // If the result has the full dashboard structure (summary, transcript, insights, mindMap)
-      if (
-        result.summary &&
-        result.transcript &&
-        result.insights &&
-        result.mindMap
-      ) {
-        console.log(`[AI_INSIGHTS] Returning full dashboard structure`, {
-          requestId,
-          timestamp: new Date().toISOString(),
-        });
-        return { dashboard: result, tokensUsed: totalTokensUsed };
-      }
-
-      // If it's the old format, convert to dashboard format
-      if (result.summary && typeof result.summary === 'string') {
-        console.log(`[AI_INSIGHTS] Converting old format to dashboard format`, {
-          requestId,
-          timestamp: new Date().toISOString(),
-        });
-        return {
-          dashboard: {
-            summary: {
-              text: result.summary,
-              metrics: [
-                { label: 'Duration', value: 'N/A' },
-                { label: 'Main Topics', value: allTopics.size.toString() },
-                { label: 'Key Insights', value: 'N/A' },
-                { label: 'Complexity', value: 'Intermediate' },
-              ],
-              topics: Array.from(allTopics),
-            },
-            transcript: [
-              { time: '00:00', text: 'Transcript processing completed' },
-            ],
-            insights: {
-              chips: [
-                {
-                  label: `${allTopics.size} topics extracted`,
-                  variant: 'secondary',
-                },
-                { label: 'Processing completed', variant: 'secondary' },
-              ],
-              sections: [
-                {
-                  title: 'Key Insights',
-                  icon: '💡',
-                  items: [{ text: 'Video analysis completed', confidence: 90 }],
-                },
-              ],
-            },
-            mindMap: {
-              root: 'Video Insights',
-              branches: Array.from(allTopics).map((topic) => ({
-                label: topic,
-                children: [],
-              })),
-            },
-          },
-          tokensUsed: totalTokensUsed,
-        };
-      }
-    }
-
-    // If we have multiple chunks, create a final consolidation
-    if (chunks.length > 1) {
-      console.log(
-        `[AI_INSIGHTS] Multiple chunks detected, creating consolidation`,
-        {
-          requestId,
-          numberOfChunks: chunks.length,
-          timestamp: new Date().toISOString(),
-        }
-      );
-
-      const consolidationPrompt = `Consolide os seguintes resultados em um único resumo conciso, seguindo o formato JSON abaixo para dashboard e mind map. Retorne apenas o JSON, sem markdown ou texto extra.
-
-### Required JSON Structure:
-{
-  "summary": { ... },
-  "transcript": [ ... ],
-  "insights": { ... },
-  "mindMap": { ... }
-}
-
-Resultados para consolidar:
-${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
-`;
-
-      try {
-        console.log(`[AI_INSIGHTS] Sending consolidation request to OpenAI`, {
-          requestId,
-          consolidationPromptLength: consolidationPrompt.length,
-          timestamp: new Date().toISOString(),
-        });
-
-        const consolidationCompletion = await openai.chat.completions.create({
-          model: 'gpt-4-turbo-preview',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Você é um assistente especializado em consolidação de análises de vídeo. Sempre retorne JSON válido e completo.',
-            },
-            {
-              role: 'user',
-              content: consolidationPrompt,
-            },
-          ],
-          temperature: 0.2,
-          max_tokens: 6000,
-        });
-
-        const consolidationTokens =
-          consolidationCompletion.usage?.total_tokens || 0;
-        totalTokensUsed += consolidationTokens;
-
-        console.log(`[AI_INSIGHTS] Consolidation response received`, {
-          requestId,
-          consolidationTokens,
-          totalTokensUsed,
-          timestamp: new Date().toISOString(),
-        });
-
-        const consolidationResponse =
-          consolidationCompletion.choices[0]?.message?.content;
-
-        if (!consolidationResponse) {
-          throw new Error('Failed to generate consolidation');
-        }
-
-        try {
-          const consolidatedResult = JSON.parse(consolidationResponse);
-          console.log(`[AI_INSIGHTS] Consolidation JSON parsed successfully`, {
-            requestId,
-            hasSummary: !!consolidatedResult.summary,
-            hasTranscript: !!consolidatedResult.transcript,
-            hasInsights: !!consolidatedResult.insights,
-            hasMindMap: !!consolidatedResult.mindMap,
-            timestamp: new Date().toISOString(),
-          });
-
-          return { dashboard: consolidatedResult, tokensUsed: totalTokensUsed };
-        } catch (consolidationParseError) {
-          console.error(`[AI_INSIGHTS] Consolidation JSON parsing error`, {
-            requestId,
-            error:
-              consolidationParseError instanceof Error
-                ? consolidationParseError.message
-                : 'Unknown parsing error',
-            responseLength: consolidationResponse.length,
-            timestamp: new Date().toISOString(),
-          });
-          throw new Error('Failed to parse consolidation response');
-        }
-      } catch (consolidationError) {
-        console.error(`[AI_INSIGHTS] Consolidation failed`, {
-          requestId,
-          error:
-            consolidationError instanceof Error
-              ? consolidationError.message
-              : 'Unknown consolidation error',
-          timestamp: new Date().toISOString(),
-        });
-        throw consolidationError;
-      }
-    }
-
-    // Fallback: create a basic dashboard
-    console.log(`[AI_INSIGHTS] Creating fallback dashboard`, {
-      requestId,
-      timestamp: new Date().toISOString(),
-    });
-
-    const fallbackDashboard = {
-      summary: {
-        text: consolidatedSummary || 'Video analysis completed',
-        metrics: [
-          { label: 'Duration', value: 'N/A' },
-          { label: 'Main Topics', value: allTopics.size.toString() },
-          { label: 'Key Insights', value: 'N/A' },
-          { label: 'Complexity', value: 'Intermediate' },
-        ],
-        topics: Array.from(allTopics),
-      },
-      transcript: [{ time: '00:00', text: 'Transcript processing completed' }],
-      insights: {
-        chips: [
-          { label: `${allTopics.size} topics extracted`, variant: 'secondary' },
-          { label: 'Processing completed', variant: 'secondary' },
-        ],
-        sections: [
-          {
-            title: 'Key Insights',
-            icon: '💡',
-            items: [{ text: 'Video analysis completed', confidence: 90 }],
-          },
-        ],
-      },
-      mindMap: {
-        root: 'Video Insights',
-        branches: Array.from(allTopics).map((topic) => ({
-          label: topic,
-          children: [],
-        })),
-      },
-    };
-
-    const totalTime = Date.now() - startTime;
-    console.log(`[AI_INSIGHTS] AI insights generation completed successfully`, {
-      requestId,
-      totalTime: `${totalTime}ms`,
-      totalTokensUsed,
-      numberOfChunks: chunks.length,
-      timestamp: new Date().toISOString(),
-    });
-
-    return { dashboard: fallbackDashboard, tokensUsed: totalTokensUsed };
+    return { dashboard: consolidatedAI, tokensUsed: totalTokensUsed };
   } catch (error) {
     const totalTime = Date.now() - startTime;
     const errorMessage =
-      error instanceof Error ? error.message : 'AI insights generation failed';
+      error instanceof Error ? error.message : 'AI processing failed';
 
-    console.error(`[AI_INSIGHTS] AI insights generation failed`, {
+    console.error(`[AI_INSIGHTS] Optimized AI processing failed`, {
       requestId,
       error: errorMessage,
       stack: error instanceof Error ? error.stack : undefined,
@@ -1834,6 +1309,769 @@ ${allResults.map((r, i) => `Bloco ${i + 1}: ${JSON.stringify(r)}`).join('\n')}
 
     throw error;
   }
+}
+
+// Helper function to create robust chunks with overlap
+function createRobustChunks(text: string, maxTokens: number = 1500): string[] {
+  const chunks: string[] = [];
+  const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+
+  let currentChunk = '';
+  let currentTokens = 0;
+
+  for (const sentence of sentences) {
+    const sentenceTokens = estimateTokenCount(sentence);
+    const testChunk = currentChunk + sentence + '. ';
+    const testTokens = estimateTokenCount(testChunk);
+
+    if (testTokens > maxTokens && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim());
+      // Start new chunk with overlap
+      currentChunk = sentence + '. ';
+      currentTokens = sentenceTokens;
+    } else {
+      currentChunk = testChunk;
+      currentTokens = testTokens;
+    }
+  }
+
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks;
+}
+
+// Helper function to process all chunks with retry logic
+async function processAllChunksWithRetry(
+  chunks: string[],
+  requestId: string,
+  prompts: {
+    system: string;
+    user: (chunk: string, chunkIndex: number) => string;
+  },
+  maxRetries: number = 3
+): Promise<{ results: any[]; totalTokensUsed: number }> {
+  const results: any[] = [];
+  let totalTokensUsed = 0;
+  let currentChunks = [...chunks];
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[AI_INSIGHTS] Processing attempt ${attempt}/${maxRetries}`, {
+        requestId,
+        chunksToProcess: currentChunks.length,
+        timestamp: new Date().toISOString(),
+      });
+
+      for (let i = 0; i < currentChunks.length; i++) {
+        const chunk = currentChunks[i];
+        const chunkResult = await processChunkWithRetry(
+          chunk,
+          i + 1,
+          requestId,
+          prompts
+        );
+
+        results.push(chunkResult.result);
+        totalTokensUsed += chunkResult.tokensUsed;
+
+        console.log(
+          `[AI_INSIGHTS] Chunk ${i + 1}/${currentChunks.length} processed`,
+          {
+            requestId,
+            chunkIndex: i + 1,
+            tokensUsed: chunkResult.tokensUsed,
+            totalTokensUsed,
+            timestamp: new Date().toISOString(),
+          }
+        );
+      }
+
+      // If we get here, all chunks processed successfully
+      return { results, totalTokensUsed };
+    } catch (error) {
+      console.error(`[AI_INSIGHTS] Attempt ${attempt} failed`, {
+        requestId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      });
+
+      if (attempt === maxRetries) {
+        throw error;
+      }
+
+      // Reduce chunk size and retry
+      currentChunks = createSmallerChunks(currentChunks, 800); // Reduce to 800 tokens
+      console.log(`[AI_INSIGHTS] Reducing chunk size for retry`, {
+        requestId,
+        newChunkCount: currentChunks.length,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  throw new Error('All processing attempts failed');
+}
+
+// Helper function to create smaller chunks for retry
+function createSmallerChunks(
+  chunks: string[],
+  maxTokens: number = 800
+): string[] {
+  const smallerChunks: string[] = [];
+
+  for (const chunk of chunks) {
+    const subChunks = createRobustChunks(chunk, maxTokens);
+    smallerChunks.push(...subChunks);
+  }
+
+  return smallerChunks;
+}
+
+// Helper function to clean AI response and extract JSON
+function extractJSONFromResponse(response: string): string {
+  // Remove markdown code blocks if present
+  let cleanedResponse = response.trim();
+
+  // Check if response starts with ```json or ``` and ends with ```
+  if (cleanedResponse.startsWith('```json')) {
+    cleanedResponse = cleanedResponse.replace(/^```json\s*/, '');
+  } else if (cleanedResponse.startsWith('```')) {
+    cleanedResponse = cleanedResponse.replace(/^```\s*/, '');
+  }
+
+  // Remove trailing ```
+  if (cleanedResponse.endsWith('```')) {
+    cleanedResponse = cleanedResponse.replace(/```$/, '');
+  }
+
+  return cleanedResponse.trim();
+}
+
+// Helper function to process individual chunk with retry
+async function processChunkWithRetry(
+  chunk: string,
+  chunkIndex: number,
+  requestId: string,
+  prompts: {
+    system: string;
+    user: (chunk: string, chunkIndex: number) => string;
+  },
+  maxRetries: number = 3
+): Promise<{ result: any; tokensUsed: number }> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          {
+            role: 'system',
+            content: prompts.system,
+          },
+          {
+            role: 'user',
+            content: prompts.user(chunk, chunkIndex),
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 1500, // Conservative
+      });
+
+      const tokensUsed = completion.usage?.total_tokens || 0;
+      const response = completion.choices[0]?.message?.content;
+
+      if (!response) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      // Clean the response and extract JSON
+      const cleanedResponse = extractJSONFromResponse(response);
+
+      console.log(`[AI_INSIGHTS] Processing chunk ${chunkIndex} response`, {
+        requestId,
+        chunkIndex,
+        attempt,
+        originalResponseLength: response.length,
+        cleanedResponseLength: cleanedResponse.length,
+        responseStart: response.substring(0, 100),
+        cleanedStart: cleanedResponse.substring(0, 100),
+        timestamp: new Date().toISOString(),
+      });
+
+      let result;
+      try {
+        result = JSON.parse(cleanedResponse);
+      } catch (parseError) {
+        console.error(
+          `[AI_INSIGHTS] JSON parsing failed for chunk ${chunkIndex}`,
+          {
+            requestId,
+            chunkIndex,
+            attempt,
+            parseError:
+              parseError instanceof Error
+                ? parseError.message
+                : 'Unknown parse error',
+            cleanedResponse: cleanedResponse.substring(0, 200),
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        // Create a fallback result
+        result = {
+          summary: {
+            text: `Análise da parte ${chunkIndex} da transcrição`,
+            metrics: [
+              { label: 'Duration', value: 'N/A' },
+              { label: 'Main Topics', value: '1' },
+              { label: 'Key Insights', value: '1' },
+              { label: 'Complexity', value: 'Basic' },
+            ],
+            topics: ['Análise de transcrição'],
+          },
+          insights: {
+            chips: [{ label: '1 insight extraído', variant: 'secondary' }],
+            sections: [
+              {
+                title: 'Análise Básica',
+                icon: '📝',
+                items: [
+                  { text: 'Conteúdo processado com sucesso', confidence: 80 },
+                ],
+              },
+            ],
+          },
+          mindMap: {
+            root: 'Video Insights',
+            branches: [
+              {
+                label: 'Conteúdo Analisado',
+                children: [],
+              },
+            ],
+          },
+        };
+
+        console.log(
+          `[AI_INSIGHTS] Using fallback result for chunk ${chunkIndex}`,
+          {
+            requestId,
+            chunkIndex,
+            attempt,
+            timestamp: new Date().toISOString(),
+          }
+        );
+      }
+
+      console.log(`[AI_INSIGHTS] Chunk ${chunkIndex} processed successfully`, {
+        requestId,
+        chunkIndex,
+        attempt,
+        tokensUsed,
+        hasSummary: !!result.summary,
+        hasInsights: !!result.insights,
+        timestamp: new Date().toISOString(),
+      });
+
+      return { result, tokensUsed };
+    } catch (error) {
+      console.error(
+        `[AI_INSIGHTS] Chunk ${chunkIndex} attempt ${attempt} failed`,
+        {
+          requestId,
+          chunkIndex,
+          attempt,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString(),
+        }
+      );
+
+      if (attempt === maxRetries) {
+        throw error;
+      }
+
+      // Wait before retry
+      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+    }
+  }
+
+  throw new Error(
+    `Chunk ${chunkIndex} processing failed after ${maxRetries} attempts`
+  );
+}
+
+// Helper function to consolidate AI results (summary, insights, mindMap only)
+async function consolidateAIResults(
+  chunkResults: any[],
+  requestId: string
+): Promise<any> {
+  console.log(
+    `[AI_INSIGHTS] Consolidating ${chunkResults.length} chunk results`,
+    {
+      requestId,
+      timestamp: new Date().toISOString(),
+    }
+  );
+
+  // Consolidate summaries
+  const allSummaries = chunkResults
+    .filter((r) => r.summary)
+    .map((r) => (typeof r.summary === 'string' ? r.summary : r.summary.text))
+    .join(' ');
+
+  // Consolidate insights with diversity
+  const allInsights = chunkResults
+    .filter((r) => r.insights)
+    .flatMap((r) => r.insights.sections || []);
+
+  // Consolidate mind map branches
+  const allBranches = chunkResults
+    .filter((r) => r.mindMap)
+    .flatMap((r) => r.mindMap.branches || []);
+
+  // Create diverse insights sections
+  const diverseSections = createDiverseInsightsSections(allInsights);
+
+  // Create final consolidated dashboard (NO transcript field)
+  const consolidatedAI = {
+    summary: {
+      text: allSummaries || 'Video analysis completed',
+      metrics: [
+        { label: 'Duration', value: 'N/A' },
+        { label: 'Main Topics', value: allBranches.length.toString() },
+        { label: 'Key Insights', value: diverseSections.length.toString() },
+        { label: 'Complexity', value: 'Comprehensive' },
+      ],
+      topics: allBranches.map((b) => b.label),
+    },
+    insights: {
+      chips: [
+        {
+          label: `${diverseSections.length} insights extracted`,
+          variant: 'secondary',
+        },
+        { label: `${allBranches.length} main topics`, variant: 'secondary' },
+        { label: 'Full analysis completed', variant: 'secondary' },
+      ],
+      sections: diverseSections,
+    },
+    mindMap: {
+      root: 'Video Insights',
+      branches: allBranches,
+    },
+  };
+
+  console.log(`[AI_INSIGHTS] AI consolidation completed`, {
+    requestId,
+    summaryLength: allSummaries.length,
+    insightsCount: diverseSections.length,
+    branchesCount: allBranches.length,
+    timestamp: new Date().toISOString(),
+  });
+
+  return consolidatedAI;
+}
+
+// Helper function to create diverse insights sections
+function createDiverseInsightsSections(allSections: any[]): any[] {
+  const sectionTypes = [
+    {
+      title: 'Key Insights',
+      icon: '💡',
+      keywords: ['important', 'key', 'main', 'primary'],
+    },
+    {
+      title: 'Technical Details',
+      icon: '⚙️',
+      keywords: ['technical', 'technology', 'system', 'process'],
+    },
+    {
+      title: 'Financial Analysis',
+      icon: '💰',
+      keywords: ['money', 'financial', 'cost', 'budget', 'investment'],
+    },
+    {
+      title: 'Strategic Points',
+      icon: '🎯',
+      keywords: ['strategy', 'strategic', 'planning', 'goal'],
+    },
+    {
+      title: 'Challenges & Solutions',
+      icon: '🔧',
+      keywords: ['challenge', 'problem', 'solution', 'issue'],
+    },
+    {
+      title: 'Best Practices',
+      icon: '✅',
+      keywords: ['best', 'practice', 'recommendation', 'tip'],
+    },
+    {
+      title: 'Market Insights',
+      icon: '📊',
+      keywords: ['market', 'trend', 'industry', 'business'],
+    },
+    {
+      title: 'Expert Tips',
+      icon: '👨‍💼',
+      keywords: ['expert', 'professional', 'advice', 'guidance'],
+    },
+    {
+      title: 'Innovation Ideas',
+      icon: '🚀',
+      keywords: ['innovation', 'creative', 'new', 'future'],
+    },
+    {
+      title: 'Risk Factors',
+      icon: '⚠️',
+      keywords: ['risk', 'danger', 'warning', 'caution'],
+    },
+  ];
+
+  const categorizedSections: { [key: string]: any[] } = {};
+
+  // Categorize items by content
+  allSections.forEach((section) => {
+    if (section.items) {
+      section.items.forEach((item) => {
+        const itemText = item.text?.toLowerCase() || '';
+
+        // Find the best matching category
+        let bestMatch = sectionTypes[0]; // Default to Key Insights
+        let bestScore = 0;
+
+        sectionTypes.forEach((type) => {
+          const score = type.keywords.reduce(
+            (acc, keyword) => acc + (itemText.includes(keyword) ? 1 : 0),
+            0
+          );
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = type;
+          }
+        });
+
+        if (!categorizedSections[bestMatch.title]) {
+          categorizedSections[bestMatch.title] = [];
+        }
+        categorizedSections[bestMatch.title].push(item);
+      });
+    }
+  });
+
+  // Create final sections with diverse titles and icons
+  const finalSections = Object.entries(categorizedSections).map(
+    ([title, items]) => {
+      const sectionType =
+        sectionTypes.find((st) => st.title === title) || sectionTypes[0];
+      return {
+        title: sectionType.title,
+        icon: sectionType.icon,
+        items: items.slice(0, 5), // Limit to 5 items per section
+      };
+    }
+  );
+
+  // If no sections were created, create a default one
+  if (finalSections.length === 0) {
+    finalSections.push({
+      title: 'Key Insights',
+      icon: '💡',
+      items: [
+        { text: 'Video analysis completed successfully', confidence: 90 },
+      ],
+    });
+  }
+
+  return finalSections;
+}
+
+// Helper function to extract key topics
+function extractKeyTopics(text: string): string[] {
+  // Simple topic extraction - you can enhance this
+  const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 10);
+  const topics = new Set<string>();
+
+  sentences.forEach((sentence) => {
+    const words = sentence.toLowerCase().match(/\b\w{4,}\b/g) || [];
+    words.forEach((word) => {
+      if (
+        word.length > 4 &&
+        ![
+          'this',
+          'that',
+          'with',
+          'from',
+          'they',
+          'have',
+          'will',
+          'said',
+          'like',
+          'just',
+          'very',
+          'much',
+          'more',
+          'most',
+          'some',
+          'time',
+          'year',
+          'month',
+          'week',
+          'day',
+          'hour',
+          'minute',
+          'second',
+        ].includes(word)
+      ) {
+        topics.add(word);
+      }
+    });
+  });
+
+  return Array.from(topics).slice(0, 15); // Reduced from 20 to 15
+}
+
+// Helper function to validate AI coverage
+function validateAICoverage(originalText: string, aiDashboard: any): number {
+  // Extract key topics from original text
+  const originalTopics = extractKeyTopics(originalText);
+
+  // Extract topics from processed dashboard
+  const processedTopics = new Set<string>();
+
+  // From summary topics
+  if (aiDashboard.summary?.topics) {
+    aiDashboard.summary.topics.forEach((topic) =>
+      processedTopics.add(topic.toLowerCase())
+    );
+  }
+
+  // From mind map branches
+  if (aiDashboard.mindMap?.branches) {
+    aiDashboard.mindMap.branches.forEach((branch) =>
+      processedTopics.add(branch.label.toLowerCase())
+    );
+  }
+
+  // From insights sections
+  if (aiDashboard.insights?.sections) {
+    aiDashboard.insights.sections.forEach((section) => {
+      if (section.title) processedTopics.add(section.title.toLowerCase());
+      if (section.items) {
+        section.items.forEach((item) => {
+          if (item.text) {
+            const words = item.text.toLowerCase().match(/\b\w{4,}\b/g) || [];
+            words.forEach((word) => processedTopics.add(word));
+          }
+        });
+      }
+    });
+  }
+
+  // Calculate coverage with more flexible matching
+  const coveredTopics = originalTopics.filter((topic) => {
+    const topicLower = topic.toLowerCase();
+    return Array.from(processedTopics).some(
+      (processedTopic) =>
+        processedTopic.includes(topicLower) ||
+        topicLower.includes(processedTopic)
+    );
+  });
+
+  const coverage =
+    originalTopics.length > 0
+      ? coveredTopics.length / originalTopics.length
+      : 1;
+
+  console.log(`[AI_INSIGHTS] AI coverage validation`, {
+    originalTopics: originalTopics.length,
+    processedTopics: processedTopics.size,
+    coveredTopics: coveredTopics.length,
+    coverage: `${(coverage * 100).toFixed(1)}%`,
+    originalTopicsSample: originalTopics.slice(0, 5),
+    processedTopicsSample: Array.from(processedTopics).slice(0, 5),
+  });
+
+  return coverage;
+}
+
+// Helper function to format raw transcription into time-based segments
+function formatRawTranscription(
+  rawText: string
+): Array<{ time: string; text: string }> {
+  const sentences = rawText.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+  const formattedTranscript: Array<{ time: string; text: string }> = [];
+
+  // Calculate time intervals based on total length
+  const totalSentences = sentences.length;
+  const timeInterval = Math.max(30, Math.floor(totalSentences / 20)); // At least 30 seconds
+
+  sentences.forEach((sentence, index) => {
+    const minutes = Math.floor((index * timeInterval) / 60);
+    const seconds = (index * timeInterval) % 60;
+    const time = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+    formattedTranscript.push({
+      time,
+      text: sentence.trim() + '.',
+    });
+  });
+
+  return formattedTranscript;
+}
+
+// Helper function to detect language from text
+async function detectLanguage(text: string): Promise<string> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4-turbo-preview',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Detect the language of the given text. Return only the language code (e.g., "en", "pt", "es", "fr"). If mixed languages, return the dominant one.',
+        },
+        {
+          role: 'user',
+          content: `Detect the language of this text: ${text.substring(0, 1000)}`,
+        },
+      ],
+      temperature: 0,
+      max_tokens: 10,
+    });
+
+    const language = completion.choices[0]?.message?.content?.trim() || 'en';
+    console.log(`[LANGUAGE_DETECTION] Detected language: ${language}`, {
+      textLength: text.length,
+      sampleText: text.substring(0, 200),
+      timestamp: new Date().toISOString(),
+    });
+
+    return language;
+  } catch (error) {
+    console.warn(
+      `[LANGUAGE_DETECTION] Failed to detect language, defaulting to English`,
+      {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      }
+    );
+    return 'en';
+  }
+}
+
+// Helper function to get language-specific prompts
+function getLanguagePrompts(language: string) {
+  const prompts = {
+    pt: {
+      system: `Você é um assistente especializado em análise de transcrições de vídeo.
+
+IMPORTANTE: Retorne APENAS JSON válido, sem markdown, sem código, sem texto extra. Apenas o objeto JSON puro.
+
+Estrutura JSON esperada:
+{
+  "summary": {
+    "text": "Resumo conciso do conteúdo",
+    "metrics": [
+      { "label": "Duration", "value": "N/A" },
+      { "label": "Main Topics", "value": "3" },
+      { "label": "Key Insights", "value": "5" },
+      { "label": "Complexity", "value": "Intermediate" }
+    ],
+    "topics": ["Tópico 1", "Tópico 2"]
+  },
+  "insights": {
+    "chips": [
+      { "label": "5 insights extraídos", "variant": "secondary" }
+    ],
+    "sections": [
+      {
+        "title": "Insights Principais",
+        "icon": "💡",
+        "items": [
+          { "text": "Insight importante", "confidence": 95 }
+        ]
+      }
+    ]
+  },
+  "mindMap": {
+    "root": "Video Insights",
+    "branches": [
+      {
+        "label": "Tópico Principal",
+        "children": [
+          { "label": "Subtópico 1" }
+        ]
+      }
+    ]
+  }
+}`,
+      user: (
+        chunk: string,
+        chunkIndex: number
+      ) => `Analise esta parte da transcrição e retorne insights estruturados em JSON. Esta é a parte ${chunkIndex} de uma transcrição completa.
+
+IMPORTANTE: Retorne APENAS JSON válido, sem markdown, sem código, sem texto extra. Apenas o objeto JSON puro.
+
+Transcrição para análise:
+${chunk}`,
+    },
+    en: {
+      system: `You are an expert video transcription analysis assistant.
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no code, no extra text. Just the pure JSON object.
+
+Expected JSON structure:
+{
+  "summary": {
+    "text": "Concise content summary",
+    "metrics": [
+      { "label": "Duration", "value": "N/A" },
+      { "label": "Main Topics", "value": "3" },
+      { "label": "Key Insights", "value": "5" },
+      { "label": "Complexity", "value": "Intermediate" }
+    ],
+    "topics": ["Topic 1", "Topic 2"]
+  },
+  "insights": {
+    "chips": [
+      { "label": "5 insights extracted", "variant": "secondary" }
+    ],
+    "sections": [
+      {
+        "title": "Key Insights",
+        "icon": "💡",
+        "items": [
+          { "text": "Important insight", "confidence": 95 }
+        ]
+      }
+    ]
+  },
+  "mindMap": {
+    "root": "Video Insights",
+    "branches": [
+      {
+        "label": "Main Topic",
+        "children": [
+          { "label": "Subtopic 1" }
+        ]
+      }
+    ]
+  }
+}`,
+      user: (
+        chunk: string,
+        chunkIndex: number
+      ) => `Analyze this part of the transcription and return structured insights in JSON. This is part ${chunkIndex} of a complete transcription.
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no code, no extra text. Just the pure JSON object.
+
+Transcription for analysis:
+${chunk}`,
+    },
+  };
+
+  return prompts[language] || prompts['en'];
 }
 
 // Utility function to get failed videos with error details
