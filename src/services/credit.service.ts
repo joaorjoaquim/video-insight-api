@@ -1,7 +1,33 @@
 import { CreditTransactionRepository } from '../repositories/credit-transaction.repository';
 import { UserRepository } from '../repositories/user.repository';
-import { CreditTransactionEntity, TransactionType, TransactionStatus } from '../entities/CreditTransaction';
+import {
+  CreditTransactionEntity,
+  TransactionType,
+  TransactionStatus,
+} from '../entities/CreditTransaction';
 import { UserEntity } from '../entities/User';
+import { VideoEntity } from '../entities/Video';
+
+// Enhanced transaction interface with video information
+export interface TransactionWithVideoInfo {
+  id: number;
+  amount: number;
+  type: TransactionType;
+  status: TransactionStatus;
+  description: string;
+  referenceId?: string;
+  referenceType?: string;
+  tokensUsed?: number;
+  userId: number;
+  videoId?: number;
+  createdAt: Date;
+  video?: {
+    id: number;
+    title: string;
+    duration: number;
+    status: string;
+  } | null;
+}
 
 export interface CreditSpendRequest {
   userId: number;
@@ -10,6 +36,7 @@ export interface CreditSpendRequest {
   referenceId?: string;
   referenceType?: string;
   tokensUsed?: number;
+  videoId?: number; // Add videoId to the request
 }
 
 export interface CreditRefundRequest {
@@ -18,6 +45,7 @@ export interface CreditRefundRequest {
   description: string;
   referenceId?: string;
   referenceType?: string;
+  videoId?: number; // Add videoId to the request
 }
 
 export interface AdminCreditRequest {
@@ -39,8 +67,12 @@ export async function getUserTransactionHistory(
   userId: number,
   limit?: number,
   offset?: number
-): Promise<{ transactions: CreditTransactionEntity[]; total: number }> {
-  const queryBuilder = CreditTransactionRepository.createQueryBuilder('transaction')
+): Promise<{ transactions: TransactionWithVideoInfo[]; total: number }> {
+  const queryBuilder = CreditTransactionRepository.createQueryBuilder(
+    'transaction'
+  )
+    .leftJoinAndSelect('transaction.user', 'user')
+    .leftJoinAndSelect('transaction.video', 'video')
     .where('transaction.userId = :userId', { userId })
     .orderBy('transaction.createdAt', 'DESC');
 
@@ -55,11 +87,42 @@ export async function getUserTransactionHistory(
   const transactions = await queryBuilder.getMany();
   const total = await CreditTransactionRepository.count({ where: { userId } });
 
-  return { transactions, total };
+  // Transform to include video info in the expected format
+  const enhancedTransactions: TransactionWithVideoInfo[] = transactions.map(
+    (transaction) => {
+      const enhancedTransaction: TransactionWithVideoInfo = { ...transaction };
+
+      if (transaction.video) {
+        enhancedTransaction.video = {
+          id: transaction.video.id,
+          title: transaction.video.title || 'Untitled Video',
+          duration: transaction.video.duration || 0,
+          status: transaction.video.status,
+        };
+      }
+
+      return enhancedTransaction;
+    }
+  );
+
+  return {
+    transactions: enhancedTransactions,
+    total,
+  };
 }
 
-export async function spendCredits(request: CreditSpendRequest): Promise<boolean> {
-  const { userId, amount, description, referenceId, referenceType, tokensUsed } = request;
+export async function spendCredits(
+  request: CreditSpendRequest
+): Promise<boolean> {
+  const {
+    userId,
+    amount,
+    description,
+    referenceId,
+    referenceType,
+    tokensUsed,
+    videoId,
+  } = request;
 
   // Check if user has enough credits
   const user = await UserRepository.findOne({ where: { id: userId } });
@@ -67,7 +130,7 @@ export async function spendCredits(request: CreditSpendRequest): Promise<boolean
     return false;
   }
 
-  // Create transaction record
+  // Create transaction record with video relation
   const transaction = CreditTransactionRepository.create({
     userId,
     amount: -amount, // Negative for spending
@@ -77,6 +140,7 @@ export async function spendCredits(request: CreditSpendRequest): Promise<boolean
     referenceId,
     referenceType,
     tokensUsed,
+    videoId, // Add videoId to the transaction
   });
 
   await CreditTransactionRepository.save(transaction);
@@ -89,10 +153,13 @@ export async function spendCredits(request: CreditSpendRequest): Promise<boolean
   return true;
 }
 
-export async function refundCredits(request: CreditRefundRequest): Promise<boolean> {
-  const { userId, amount, description, referenceId, referenceType } = request;
+export async function refundCredits(
+  request: CreditRefundRequest
+): Promise<boolean> {
+  const { userId, amount, description, referenceId, referenceType, videoId } =
+    request;
 
-  // Create refund transaction
+  // Create refund transaction with video relation
   const transaction = CreditTransactionRepository.create({
     userId,
     amount: amount, // Positive for refund
@@ -101,6 +168,7 @@ export async function refundCredits(request: CreditRefundRequest): Promise<boole
     description,
     referenceId,
     referenceType,
+    videoId, // Add videoId to the transaction
   });
 
   await CreditTransactionRepository.save(transaction);
@@ -117,7 +185,7 @@ export async function refundCredits(request: CreditRefundRequest): Promise<boole
 }
 
 export async function grantCredits(
-  request: AdminCreditRequest, 
+  request: AdminCreditRequest,
   adminHash: string
 ): Promise<{ success: boolean; message: string }> {
   const { userId, amount, description } = request;
@@ -147,11 +215,14 @@ export async function grantCredits(
     await CreditTransactionRepository.save(transaction);
     await UserRepository.update(userId, { credits: user.credits + amount });
 
-    return { success: true, message: `Granted ${amount} credits to user ${userId}` };
+    return {
+      success: true,
+      message: `Granted ${amount} credits to user ${userId}`,
+    };
   } else {
     // Grant credits to all users
     const users = await UserRepository.find();
-    const transactions = users.map(user =>
+    const transactions = users.map((user) =>
       CreditTransactionRepository.create({
         userId: user.id,
         amount,
@@ -169,12 +240,15 @@ export async function grantCredits(
       await UserRepository.update(user.id, { credits: user.credits + amount });
     }
 
-    return { success: true, message: `Granted ${amount} credits to all ${users.length} users` };
+    return {
+      success: true,
+      message: `Granted ${amount} credits to all ${users.length} users`,
+    };
   }
 }
 
 export async function deductCredits(
-  request: AdminCreditRequest, 
+  request: AdminCreditRequest,
   adminHash: string
 ): Promise<{ success: boolean; message: string }> {
   const { userId, amount, description } = request;
@@ -208,17 +282,23 @@ export async function deductCredits(
     await CreditTransactionRepository.save(transaction);
     await UserRepository.update(userId, { credits: user.credits - amount });
 
-    return { success: true, message: `Deducted ${amount} credits from user ${userId}` };
+    return {
+      success: true,
+      message: `Deducted ${amount} credits from user ${userId}`,
+    };
   } else {
     // Deduct credits from all users
     const users = await UserRepository.find();
-    const validUsers = users.filter(user => user.credits >= amount);
-    
+    const validUsers = users.filter((user) => user.credits >= amount);
+
     if (validUsers.length === 0) {
-      return { success: false, message: 'No users have enough credits to deduct' };
+      return {
+        success: false,
+        message: 'No users have enough credits to deduct',
+      };
     }
 
-    const transactions = validUsers.map(user =>
+    const transactions = validUsers.map((user) =>
       CreditTransactionRepository.create({
         userId: user.id,
         amount: -amount,
@@ -236,6 +316,9 @@ export async function deductCredits(
       await UserRepository.update(user.id, { credits: user.credits - amount });
     }
 
-    return { success: true, message: `Deducted ${amount} credits from ${validUsers.length} users` };
+    return {
+      success: true,
+      message: `Deducted ${amount} credits from ${validUsers.length} users`,
+    };
   }
-} 
+}

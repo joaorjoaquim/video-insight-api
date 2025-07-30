@@ -7,6 +7,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { UserEntity } from './User';
+import { VideoEntity } from './Video';
 
 export enum TransactionType {
   PURCHASE = 'purchase',
@@ -56,6 +57,14 @@ export class CreditTransactionEntity {
   @Column({ type: 'int' })
   userId: number;
 
+  // Add relation to Video entity
+  @ManyToOne(() => VideoEntity, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'videoId' })
+  video: VideoEntity;
+
+  @Column({ type: 'int', nullable: true })
+  videoId: number;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -64,4 +73,4 @@ export class CreditTransactionEntity {
       this.id = 0;
     }
   }
-} 
+}

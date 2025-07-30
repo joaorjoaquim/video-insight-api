@@ -3,6 +3,7 @@ import { VideoEntity } from '../entities/Video';
 import { OpenAI } from 'openai';
 import { spendCredits, refundCredits } from './credit.service';
 import { CreditTransactionRepository } from '../repositories/credit-transaction.repository';
+import { UserRepository } from '../repositories/user.repository';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -56,34 +57,38 @@ export async function createVideoWithCredits(
   // We'll use a conservative estimate of 5 credits initially
   const estimatedCredits = 5;
 
-  // Check if user has enough credits
-  const creditSpent = await spendCredits({
-    userId,
-    amount: estimatedCredits,
-    description: 'Video submission (estimated)',
-    referenceType: 'video_submission_estimated',
-  });
-
-  if (!creditSpent) {
+  // Check if user has enough credits first
+  const user = await UserRepository.findOne({ where: { id: userId } });
+  if (!user || user.credits < estimatedCredits) {
     return { success: false, message: 'Insufficient credits' };
   }
 
   try {
+    // Create video first
     const video = await createVideo({
       ...videoData,
       creditsCost: estimatedCredits, // Track estimated credits spent
     });
 
-    return { success: true, video };
-  } catch (error) {
-    // If video creation fails, refund the credits
-    await refundCredits({
+    // Now create transaction with videoId
+    const creditSpent = await spendCredits({
       userId,
       amount: estimatedCredits,
-      description: 'Refund for failed video creation',
-      referenceType: 'video_submission_refund',
+      description: 'Video submission (estimated)',
+      referenceId: video.id.toString(),
+      referenceType: 'video_submission_estimated',
+      videoId: video.id, // Add videoId to the transaction
     });
 
+    if (!creditSpent) {
+      // If transaction fails, delete the video and return error
+      await VideoRepository.delete(video.id);
+      return { success: false, message: 'Failed to create transaction' };
+    }
+
+    return { success: true, video };
+  } catch (error) {
+    // If video creation fails, no need to refund since no transaction was created
     throw error;
   }
 }
@@ -287,6 +292,7 @@ export async function startVideoDownload(videoId: number): Promise<void> {
         description: 'Refund for failed video download',
         referenceId: videoId.toString(),
         referenceType: 'video_download_refund',
+        videoId: videoId, // Add videoId to the refund transaction
       });
     }
 
@@ -423,6 +429,7 @@ export async function startTranscription(videoId: number): Promise<void> {
         description: 'Refund for failed transcription',
         referenceId: videoId.toString(),
         referenceType: 'video_transcription_refund',
+        videoId: videoId, // Add videoId to the refund transaction
       });
     }
 
@@ -542,6 +549,7 @@ export async function checkTranscriptionStatus(
             description: 'Refund for failed AI processing',
             referenceId: videoId.toString(),
             referenceType: 'video_ai_processing_refund',
+            videoId: videoId, // Add videoId to the refund transaction
           });
         }
 
@@ -611,6 +619,7 @@ export async function checkTranscriptionStatus(
           referenceId: videoId.toString(),
           referenceType: 'video_ai_processing',
           tokensUsed,
+          videoId: videoId, // Add videoId to the transaction
         });
 
         if (!creditSpent) {

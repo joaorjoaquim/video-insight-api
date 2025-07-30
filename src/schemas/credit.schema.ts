@@ -10,10 +10,20 @@ export const GetCreditsResponseSchema = Type.Object({
       status: Type.String({ example: 'completed' }),
       description: Type.String({ example: 'Video submission' }),
       referenceId: Type.Optional(Type.String({ example: 'VID-123' })),
-      referenceType: Type.Optional(Type.String({ example: 'video_submission' })),
+      referenceType: Type.Optional(
+        Type.String({ example: 'video_submission' })
+      ),
       tokensUsed: Type.Optional(Type.Number({ example: 1500 })),
       userId: Type.Number({ example: 5 }),
       createdAt: Type.String({ example: '2025-07-15T00:00:00.000Z' }),
+      video: Type.Optional(
+        Type.Object({
+          id: Type.Number({ example: 36 }),
+          title: Type.String({ example: 'How to Build a React App' }),
+          duration: Type.Number({ example: 1250.5 }),
+          status: Type.String({ example: 'completed' }),
+        })
+      ),
     })
   ),
   pagination: Type.Object({
@@ -36,4 +46,4 @@ export const AdminCreditResponseSchema = Type.Object({
 
 export const ErrorResponseSchema = Type.Object({
   message: Type.String({ example: 'Error message' }),
-}); 
+});

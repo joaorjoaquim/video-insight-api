@@ -10,7 +10,7 @@ const baseConfig: Partial<DataSourceOptions> = {
   type: 'postgres',
   entities: [__dirname + '/../entities/*.{js,ts}'],
   migrations: [__dirname + '/../migrations/*.{js,ts}'],
-  synchronize: isTestEnv ? true : false,
+  synchronize: isTestEnv ? true : true,
   ssl: {
     rejectUnauthorized: false,
   },
@@ -35,10 +35,10 @@ function parseDatabaseUrl(url: string) {
     const password = auth.split(':').slice(1).join(':');
 
     let host, port, database;
-    
+
     // Remove query parameters from serverPart
     const [serverWithoutQuery] = serverPart.split('?');
-    
+
     if (serverWithoutQuery.includes(':')) {
       const [hostPort, db] = serverWithoutQuery.split('/');
       const [hostPart, portPart] = hostPort.split(':');
@@ -121,8 +121,10 @@ async function connectWithRetry(
     try {
       if (!dataSource.isInitialized) {
         console.log(`Attempting to connect to ${name} Database...`);
-        console.log(`Host: ${(dataSource.options as any).host}, Database: ${(dataSource.options as any).database}`);
-        
+        console.log(
+          `Host: ${(dataSource.options as any).host}, Database: ${(dataSource.options as any).database}`
+        );
+
         await dataSource.initialize();
         logger.info(`${name} Database connected successfully`);
         return true;
