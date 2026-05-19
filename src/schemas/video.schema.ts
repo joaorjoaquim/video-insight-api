@@ -55,6 +55,12 @@ export const VideoResponseSchema = Type.Object({
   errorMessage: Type.Optional(
     Type.String({ example: 'Failed to download video' })
   ),
+  correlationId: Type.Optional(Type.String({ example: 'vid_550e8400-e29b-41d4-a716-446655440000' })),
+  failureStage: Type.Optional(Type.String({ example: 'download' })),
+  failureCode: Type.Optional(Type.String({ example: 'VDC_DOWNLOAD_FAILED' })),
+  processingProvider: Type.Optional(Type.String({ example: 'videodowncut' })),
+  lastStage: Type.Optional(Type.String({ example: 'transcribe' })),
+  attemptCount: Type.Optional(Type.Number({ example: 1 })),
   userId: Type.Number({ example: 1 }),
   createdAt: Type.String({
     format: 'date-time',
@@ -100,6 +106,12 @@ export const VideoDetailResponseSchema = Type.Object({
   errorMessage: Type.Optional(
     Type.String({ example: 'Failed to download video' })
   ),
+  correlationId: Type.Optional(Type.String({ example: 'vid_550e8400-e29b-41d4-a716-446655440000' })),
+  failureStage: Type.Optional(Type.String({ example: 'download' })),
+  failureCode: Type.Optional(Type.String({ example: 'VDC_DOWNLOAD_FAILED' })),
+  processingProvider: Type.Optional(Type.String({ example: 'videodowncut' })),
+  lastStage: Type.Optional(Type.String({ example: 'transcribe' })),
+  attemptCount: Type.Optional(Type.Number({ example: 1 })),
   userId: Type.Number({ example: 1 }),
   createdAt: Type.String({
     format: 'date-time',
@@ -207,6 +219,12 @@ export const VideoStatusResponseSchema = Type.Object({
   errorMessage: Type.Optional(
     Type.String({ example: 'Failed to download video' })
   ),
+  correlationId: Type.Optional(Type.String({ example: 'vid_550e8400-e29b-41d4-a716-446655440000' })),
+  failureStage: Type.Optional(Type.String({ example: 'download' })),
+  failureCode: Type.Optional(Type.String({ example: 'VDC_DOWNLOAD_FAILED' })),
+  processingProvider: Type.Optional(Type.String({ example: 'videodowncut' })),
+  lastStage: Type.Optional(Type.String({ example: 'transcribe' })),
+  attemptCount: Type.Optional(Type.Number({ example: 1 })),
   userId: Type.Number({ example: 1 }),
   createdAt: Type.String({
     format: 'date-time',

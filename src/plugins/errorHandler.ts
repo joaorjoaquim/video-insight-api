@@ -1,18 +1,28 @@
 import { FastifyError, FastifyRequest, FastifyReply } from 'fastify';
-import pino from 'pino';
-
-const logger = pino();
+import logger from '../config/logger';
 
 export function errorHandler(
-    error: FastifyError,
-    request: FastifyRequest,
-    reply: FastifyReply
+  error: FastifyError,
+  request: FastifyRequest,
+  reply: FastifyReply
 ) {
-    logger.error(`Error occurred: ${error.message}`);
-    logger.error(`Stack trace: ${error.stack}`);
+  logger.error(
+    {
+      err: error,
+      method: request.method,
+      url: request.url,
+      requestId: request.id,
+    },
+    'unhandled_request_error'
+  );
 
-    reply.status(500).send({
-        message: 'An internal server error occurred',
-        error: error.message,
-    });
+  const statusCode =
+    error.statusCode && error.statusCode < 500 ? error.statusCode : 500;
+
+  reply.status(statusCode).send({
+    message:
+      statusCode >= 500
+        ? 'An internal server error occurred'
+        : error.message,
+  });
 }

@@ -9,18 +9,15 @@ const logger = pino();
 
 async function startServer() {
     try {
-        // Let the server handle the database connection through its onReady hook
         const port = Number(process.env.PORT) || 3000;
-        
-        await app.listen({ port }, (err: Error) => {
-            if (err) {
-                logger.error('Error starting server:', err.message);
-                process.exit(1);
-            }
-            logger.info(`Server is running locally on port ${port}`);
-        });
+        await app.ready();
+        await app.listen({ port, host: '0.0.0.0' });
+        logger.info(`Server is running locally on port ${port}`);
     } catch (error) {
-        logger.error('Error starting application:', error);
+        logger.error(
+            { err: error },
+            error instanceof Error ? error.message : 'Error starting application'
+        );
         process.exit(1);
     }
 }

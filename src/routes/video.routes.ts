@@ -6,6 +6,7 @@ import {
   checkVideoStatusHandler,
   processVideoHandler,
   getFailedVideosHandler,
+  getVideoTraceHandler,
 } from '../controllers/video.controller';
 import {
   CreateVideoBodySchema,
@@ -71,6 +72,61 @@ export async function videoRoutes(fastify: FastifyInstance) {
   );
 
   fastify.get(
+    '/failed',
+    {
+      schema: {
+        querystring: Type.Object({
+          limit: Type.Optional(
+            Type.Number({ description: 'Number of failed videos to return' })
+          ),
+          offset: Type.Optional(
+            Type.Number({ description: 'Number of failed videos to skip' })
+          ),
+        }),
+        response: {
+          200: Type.Object({
+            videos: Type.Array(VideoResponseSchema),
+            pagination: Type.Object({
+              total: Type.Number(),
+              limit: Type.Number(),
+              offset: Type.Number(),
+            }),
+            errorSummary: Type.Object({
+              downloadFailures: Type.Number(),
+              transcriptionFailures: Type.Number(),
+              aiProcessingFailures: Type.Number(),
+              creditFailures: Type.Number(),
+              unknownFailures: Type.Number(),
+            }),
+          }),
+          401: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+    },
+    getFailedVideosHandler
+  );
+
+  fastify.get(
+    '/:id/trace',
+    {
+      schema: {
+        params: GetVideoParamsSchema,
+        response: {
+          200: Type.Object({
+            correlationId: Type.Union([Type.String(), Type.Null()]),
+            events: Type.Array(Type.Any()),
+          }),
+          401: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+        },
+      },
+    },
+    getVideoTraceHandler
+  );
+
+  fastify.get(
     '/:id',
     {
       schema: {
@@ -122,43 +178,5 @@ export async function videoRoutes(fastify: FastifyInstance) {
       },
     },
     checkVideoStatusHandler
-  );
-
-  // Get failed videos with error analysis (for debugging)
-  fastify.get(
-    '/failed',
-    {
-      schema: {
-        querystring: Type.Object({
-          limit: Type.Optional(
-            Type.Number({ description: 'Number of failed videos to return' })
-          ),
-          offset: Type.Optional(
-            Type.Number({ description: 'Number of failed videos to skip' })
-          ),
-        }),
-        response: {
-          200: Type.Object({
-            videos: Type.Array(VideoResponseSchema),
-            pagination: Type.Object({
-              total: Type.Number(),
-              limit: Type.Number(),
-              offset: Type.Number(),
-            }),
-            errorSummary: Type.Object({
-              downloadFailures: Type.Number(),
-              transcriptionFailures: Type.Number(),
-              aiProcessingFailures: Type.Number(),
-              creditFailures: Type.Number(),
-              unknownFailures: Type.Number(),
-            }),
-          }),
-          401: ErrorResponseSchema,
-          500: ErrorResponseSchema,
-        },
-      },
-      preHandler: [fastify.authenticate],
-    },
-    getFailedVideosHandler
   );
 }

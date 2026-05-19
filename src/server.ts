@@ -16,8 +16,11 @@ export function buildServer() {
   const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
   
   const app = Fastify({
+    genReqId: (req) =>
+      (req.headers['x-correlation-id'] as string) ||
+      `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
     logger: {
-      level: 'info',
+      level: process.env.LOG_LEVEL || 'info',
       transport:
         process.env.NODE_ENV !== 'production' && !isVercel
           ? { target: 'pino-pretty' }

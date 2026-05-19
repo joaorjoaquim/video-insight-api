@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { waitUntil } from '@vercel/functions';
 import {
   createVideoWithCredits,
   getVideoById,
@@ -9,7 +10,11 @@ import {
   startTranscription,
   checkTranscriptionStatus,
   getFailedVideos,
+  getVideoTrace,
 } from '../services/video.service';
+import { logVideoEvent } from '../lib/log-video-event';
+import { runWithVideoContext } from '../lib/request-context';
+import { buildPipelineContext } from '../lib/fail-video';
 
 interface CreateVideoRequest {
   Body: {
@@ -50,108 +55,69 @@ interface GetFailedVideosRequest {
   };
 }
 
+function isVercel(): boolean {
+  return process.env.VERCEL === '1' || !!process.env.VERCEL_ENV;
+}
+
+function scheduleBackgroundDownload(videoId: number): void {
+  const task = startVideoDownload(videoId).catch((error) => {
+    logVideoEvent({
+      stage: 'download',
+      event: 'failed',
+      msg: 'background_download_error',
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+    });
+  });
+
+  if (isVercel()) {
+    waitUntil(task);
+  }
+}
+
 export async function createVideoHandler(
   request: FastifyRequest<CreateVideoRequest>,
   reply: FastifyReply
 ) {
-  const startTime = Date.now();
-
   try {
     const { videoUrl } = request.body;
     const userId = (request.user as any)?.userId;
 
-    console.log(`[VIDEO_CREATE] Video creation request received`, {
-      userId,
-      videoUrl,
-      userAgent: request.headers['user-agent'],
-      ip: request.ip,
-      timestamp: new Date().toISOString(),
-    });
-
     if (!userId) {
-      console.error(
-        `[VIDEO_CREATE] Authentication required for video creation`
-      );
       return reply.status(401).send({ message: 'Authentication required' });
     }
 
-    const videoData = {
-      videoUrl,
-      userId,
-      status: 'pending' as const,
-    };
-
-    console.log(`[VIDEO_CREATE] Creating video with credits`, {
-      userId,
-      videoUrl,
-      estimatedCredits: 5,
-      timestamp: new Date().toISOString(),
-    });
-
-    const result = await createVideoWithCredits(videoData, userId);
+    const result = await createVideoWithCredits(
+      { videoUrl, userId, status: 'pending' },
+      userId
+    );
 
     if (!result.success) {
-      console.error(`[VIDEO_CREATE] Failed to create video`, {
-        userId,
-        videoUrl,
-        error: result.message,
-        timestamp: new Date().toISOString(),
-      });
-
       return reply.status(400).send({
         message: result.message || 'Failed to create video',
       });
     }
 
     const video = result.video!;
-    const requestTime = Date.now() - startTime;
 
-    console.log(`[VIDEO_CREATE] Video created successfully`, {
-      videoId: video.id,
-      userId,
-      videoUrl,
-      status: video.status,
-      requestTime: `${requestTime}ms`,
-      timestamp: new Date().toISOString(),
+    await logVideoEvent({
+      ctx: buildPipelineContext(video),
+      stage: 'http',
+      event: 'completed',
+      msg: 'video_create_accepted',
+      outputSummary: { videoId: video.id },
     });
 
-    // Start processing in background
-    console.log(`[VIDEO_CREATE] Starting background video download`, {
-      videoId: video.id,
-      userId,
-      timestamp: new Date().toISOString(),
-    });
-
-    startVideoDownload(video.id).catch((error) => {
-      console.error(`[VIDEO_CREATE] Background video download error`, {
-        videoId: video.id,
-        userId,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString(),
-      });
-    });
+    scheduleBackgroundDownload(video.id);
 
     return reply.status(201).send({
       ...video,
+      correlationId: video.correlationId,
       message: 'Video created and processing started',
     });
   } catch (error) {
-    const requestTime = Date.now() - startTime;
-    const errorMessage =
-      error instanceof Error ? error.message : 'Failed to create video';
-
-    console.error(`[VIDEO_CREATE] Unexpected error in video creation`, {
-      userId: (request.user as any)?.userId,
-      videoUrl: request.body?.videoUrl,
-      error: errorMessage,
-      stack: error instanceof Error ? error.stack : undefined,
-      requestTime: `${requestTime}ms`,
-      timestamp: new Date().toISOString(),
-    });
-
     return reply.status(400).send({
-      message: errorMessage,
+      message:
+        error instanceof Error ? error.message : 'Failed to create video',
     });
   }
 }
@@ -174,25 +140,24 @@ export async function getVideoHandler(
       return reply.status(404).send({ message: 'Video not found' });
     }
 
-    // Ensure user can only access their own videos
     if (video.userId !== userId) {
       return reply.status(403).send({ message: 'Access denied' });
     }
 
-    // For GET /videos/:id - return full dashboard data when completed
-    let response = { ...video } as any;
+    let response = { ...video } as Record<string, unknown>;
     if (
       video.dashboard &&
       typeof video.dashboard === 'object' &&
       video.status === 'completed'
     ) {
-      // Explicitly map dashboard fields to avoid conflicts
       response = {
         ...video,
+        correlationId: video.correlationId,
         summary: video.dashboard.summary,
         insights: video.dashboard.insights,
         transcript: video.dashboard.transcript,
         mindMap: video.dashboard.mindMap,
+        meta: video.dashboard.meta,
       };
     }
 
@@ -259,12 +224,30 @@ export async function checkVideoStatusHandler(
       return reply.status(404).send({ message: 'Video not found' });
     }
 
-    // Ensure user can only check their own videos
     if (video.userId !== userId) {
       return reply.status(403).send({ message: 'Access denied' });
     }
 
-    // Check current status and continue processing if needed
+    const headerCorrelationId = request.headers['x-correlation-id'];
+    if (video.correlationId) {
+      const ctx = buildPipelineContext(video);
+      await runWithVideoContext(ctx, async () => {
+        await logVideoEvent({
+          ctx,
+          stage: 'http',
+          event: 'started',
+          msg: 'status_poll_received',
+          inputSummary: {
+            statusBefore: video.status,
+            headerCorrelationId:
+              typeof headerCorrelationId === 'string'
+                ? headerCorrelationId
+                : undefined,
+          },
+        });
+      });
+    }
+
     let statusResult: {
       status:
         | 'pending'
@@ -275,46 +258,40 @@ export async function checkVideoStatusHandler(
     } = { status: video.status };
 
     if (video.status === 'pending') {
-      // Start download if not started
       try {
         await startVideoDownload(video.id);
         statusResult = { status: 'downloaded' };
-      } catch (error) {
+      } catch {
         statusResult = { status: 'failed' };
       }
     } else if (video.status === 'downloaded') {
-      // Start transcription if not started
       try {
         await startTranscription(video.id);
         statusResult = { status: 'transcribing' };
-      } catch (error) {
+      } catch {
         statusResult = { status: 'failed' };
       }
     } else if (video.status === 'transcribing') {
-      // Check transcription status
       try {
         const result = await checkTranscriptionStatus(video.id);
         statusResult = {
-          status: result.status as
-            | 'pending'
-            | 'downloaded'
-            | 'transcribing'
-            | 'completed'
-            | 'failed',
+          status: result.status as typeof statusResult.status,
         };
-      } catch (error) {
+      } catch {
         statusResult = { status: 'failed' };
       }
     }
 
-    // Get updated video data
     const updatedVideo = await getVideoById(parseInt(id));
 
-    // For GET /videos/:id/status - return basic info only (no dashboard data)
-    let response = { ...updatedVideo } as any;
-
     return reply.send({
-      ...response,
+      ...updatedVideo,
+      correlationId: updatedVideo?.correlationId,
+      lastStage: updatedVideo?.lastStage,
+      failureStage: updatedVideo?.failureStage,
+      failureCode: updatedVideo?.failureCode,
+      processingProvider: updatedVideo?.processingProvider,
+      attemptCount: updatedVideo?.attemptCount,
       status: statusResult.status,
       message: `Video status: ${statusResult.status}`,
     });
@@ -344,19 +321,22 @@ export async function processVideoHandler(
       return reply.status(404).send({ message: 'Video not found' });
     }
 
-    // Ensure user can only process their own videos
     if (video.userId !== userId) {
       return reply.status(403).send({ message: 'Access denied' });
     }
 
-    // Start processing in background
-    processVideo(parseInt(id)).catch((error) => {
-      console.error('Video processing error:', error);
+    const task = processVideo(parseInt(id)).catch((error) => {
+      request.log.error({ err: error, videoId: id }, 'Video processing error');
     });
+
+    if (isVercel()) {
+      waitUntil(task);
+    }
 
     return reply.status(202).send({
       message: 'Video processing started',
       videoId: parseInt(id),
+      correlationId: video.correlationId,
     });
   } catch (error) {
     return reply.status(500).send({
@@ -380,26 +360,11 @@ export async function getFailedVideosHandler(
       return reply.status(401).send({ message: 'Authentication required' });
     }
 
-    console.log(`[FAILED_VIDEOS] Request for failed videos analysis`, {
-      userId,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
-      timestamp: new Date().toISOString(),
-    });
-
     const result = await getFailedVideos(
       userId,
       limit ? parseInt(limit) : 50,
       offset ? parseInt(offset) : 0
     );
-
-    console.log(`[FAILED_VIDEOS] Failed videos analysis completed`, {
-      userId,
-      totalFailed: result.total,
-      returnedCount: result.videos.length,
-      errorSummary: result.errorSummary,
-      timestamp: new Date().toISOString(),
-    });
 
     return reply.send({
       videos: result.videos,
@@ -411,16 +376,39 @@ export async function getFailedVideosHandler(
       errorSummary: result.errorSummary,
     });
   } catch (error) {
-    console.error(`[FAILED_VIDEOS] Error getting failed videos`, {
-      userId: (request.user as any)?.userId,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined,
-      timestamp: new Date().toISOString(),
-    });
-
     return reply.status(500).send({
       message:
         error instanceof Error ? error.message : 'Failed to get failed videos',
+    });
+  }
+}
+
+export async function getVideoTraceHandler(
+  request: FastifyRequest<GetVideoRequest>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = (request.user as any)?.userId;
+    const videoId = parseInt(request.params.id);
+
+    if (!userId) {
+      return reply.status(401).send({ message: 'Authentication required' });
+    }
+
+    const video = await getVideoById(videoId);
+    if (!video) {
+      return reply.status(404).send({ message: 'Video not found' });
+    }
+    if (video.userId !== userId) {
+      return reply.status(403).send({ message: 'Access denied' });
+    }
+
+    const trace = await getVideoTrace(videoId);
+    return reply.send(trace);
+  } catch (error) {
+    return reply.status(500).send({
+      message:
+        error instanceof Error ? error.message : 'Failed to get video trace',
     });
   }
 }

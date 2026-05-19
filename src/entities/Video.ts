@@ -53,6 +53,27 @@ export class VideoEntity {
   @Column({ type: 'text', nullable: true })
   errorMessage: string;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  correlationId: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  failureStage: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  failureCode: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  processingProvider: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  lastStage: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  attemptCount: number;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  supadataJobId: string | null;
+
   @ManyToOne(() => UserEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: UserEntity;
