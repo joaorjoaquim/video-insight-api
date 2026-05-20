@@ -2,7 +2,7 @@ import { VideoRepository } from '../repositories/video.repository';
 import { UserRepository } from '../repositories/user.repository';
 import { VideoEntity } from '../entities/Video';
 import { CreditTransactionRepository } from '../repositories/credit-transaction.repository';
-import { spendCredits, refundCredits } from './credit.service';
+import { spendCredits, refundCredits, grantCreditsInternal } from './credit.service';
 import { generateCorrelationId } from '../lib/generate-correlation-id';
 import { buildPipelineContext, failVideo } from '../lib/fail-video';
 import { logVideoEvent } from '../lib/log-video-event';
@@ -459,6 +459,8 @@ async function completeWithTranscript(
     outputSummary: { tokensUsed, insightsStatus, transcriptLength: transcription.length },
   });
 
+  await triggerReferralRewardIfEligible(ctx.userId);
+
   return { status: 'completed', dashboard: completeDashboard };
 }
 
@@ -505,6 +507,40 @@ export async function processVideo(videoId: number): Promise<void> {
       });
     }
     throw error;
+  }
+}
+
+async function triggerReferralRewardIfEligible(userId: number): Promise<void> {
+  try {
+    const user = await UserRepository.findOne({ where: { id: userId } });
+    if (!user || !user.referredByCode || user.referralRewardGranted) return;
+
+    const completedCount = await VideoRepository.count({
+      where: { userId, status: 'completed' },
+    });
+
+    if (completedCount !== 1) return;
+
+    const referrer = await UserRepository.findOne({ where: { referralCode: user.referredByCode } });
+    if (!referrer) return;
+
+    await grantCreditsInternal(
+      referrer.id,
+      5,
+      `Referral reward — ${user.email}`,
+      'referral_reward',
+      String(userId)
+    );
+
+    await UserRepository.update(referrer.id, {
+      referralCreditsEarned: referrer.referralCreditsEarned + 5,
+    });
+
+    await UserRepository.update(userId, { referralRewardGranted: true });
+  } catch (err) {
+    // Referral reward is non-critical — log but don't fail the video completion
+    const { default: log } = await import('../config/logger');
+    log.error({ err, userId }, 'referral_reward_trigger_error');
   }
 }
 

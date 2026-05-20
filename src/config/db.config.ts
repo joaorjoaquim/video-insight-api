@@ -10,7 +10,7 @@ const baseConfig: Partial<DataSourceOptions> = {
   type: 'postgres',
   entities: [__dirname + '/../entities/*.{js,ts}'],
   migrations: [__dirname + '/../migrations/*.{js,ts}'],
-  synchronize: isTestEnv ? true : true,
+  synchronize: true,
   ssl: {
     rejectUnauthorized: false,
   },
@@ -69,10 +69,10 @@ function parseDatabaseUrl(url: string) {
 // In development, use individual variables; in production, use full URLs
 const isDevelopment = process.env.NODE_ENV === 'development';
 
-console.log('Database configuration:');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('DATABASE_URL_WRITE exists:', !!process.env.DATABASE_URL_WRITE);
-console.log('DATABASE_URL_READ exists:', !!process.env.DATABASE_URL_READ);
+logger.info(
+  { env: process.env.NODE_ENV, hasWriteUrl: !!process.env.DATABASE_URL_WRITE, hasReadUrl: !!process.env.DATABASE_URL_READ },
+  'db_config_init'
+);
 
 const writeConfig = isDevelopment
   ? {
@@ -100,10 +100,10 @@ const readConfig = isDevelopment
     ? { ...baseConfig, ...parseDatabaseUrl(process.env.DATABASE_URL_READ) }
     : writeConfig;
 
-console.log('Write config host:', writeConfig.host);
-console.log('Write config database:', writeConfig.database);
-console.log('Read config host:', readConfig.host);
-console.log('Read config database:', readConfig.database);
+logger.debug(
+  { writeHost: (writeConfig as any).host, readHost: (readConfig as any).host },
+  'db_config_resolved'
+);
 
 export const WriteDataSource = new DataSource(writeConfig as DataSourceOptions);
 export const ReadDataSource = new DataSource(readConfig as DataSourceOptions);
@@ -120,11 +120,6 @@ async function connectWithRetry(
   while (retries < maxRetries) {
     try {
       if (!dataSource.isInitialized) {
-        console.log(`Attempting to connect to ${name} Database...`);
-        console.log(
-          `Host: ${(dataSource.options as any).host}, Database: ${(dataSource.options as any).database}`
-        );
-
         await dataSource.initialize();
         logger.info(`${name} Database connected successfully`);
         return true;
@@ -132,7 +127,6 @@ async function connectWithRetry(
       return true;
     } catch (error) {
       retries++;
-      console.error(`${name} Database connection error:`, error.message);
       logger.warn(
         {
           error: {

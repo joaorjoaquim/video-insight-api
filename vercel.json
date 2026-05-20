@@ -1,22 +1,32 @@
 {
-    "version": 2,
-    "builds": [
-        {
-            "src": "src/api/index.ts",
-            "use": "@vercel/node",
-            "config": {
-                "maxDuration": 60,
-                "maxLambdaSize": "50mb"
-            }
-        }
-    ],
-    "routes": [
-        {
-            "src": "/(.*)",
-            "dest": "/src/api/index.ts"
-        }
-    ],
-    "env": {
-        "NODE_ENV": "production"
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/api/index.ts",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60,
+        "maxLambdaSize": "50mb"
+      }
     }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/src/api/index.ts"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "crons": [
+    {
+      "path": "/internal/cron/expire-promos",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/internal/cron/restore-credits",
+      "schedule": "0 0 * * 0"
+    }
+  ]
 }

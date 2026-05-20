@@ -1,13 +1,15 @@
 import { UserEntity } from '../entities/User';
 import { UserRepository } from '../repositories/user.repository';
 
-export type OAuthProvider = 'google' | 'discord';
+export type OAuthProvider = 'google' | 'discord' | 'github';
 
 interface OAuthUserProfile {
   email: string;
   name: string;
   avatarUrl?: string;
   providerId: string;
+  githubUsername?: string;
+  githubId?: string;
 }
 
 interface GoogleUserInfo {
@@ -24,13 +26,21 @@ interface DiscordUserInfo {
   avatar?: string;
 }
 
+interface GitHubUserInfo {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+  avatar_url?: string;
+}
+
 export class OAuthService {
   private static readonly GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-  private static readonly GOOGLE_CLIENT_SECRET =
-    process.env.GOOGLE_CLIENT_SECRET;
+  private static readonly GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
   private static readonly DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-  private static readonly DISCORD_CLIENT_SECRET =
-    process.env.DISCORD_CLIENT_SECRET;
+  private static readonly DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+  private static readonly GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+  private static readonly GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
   private static readonly REDIRECT_BASE_URL =
     process.env.OAUTH_REDIRECT_BASE_URL || 'https://api.summaryvideos.com/auth/callback';
 
@@ -40,12 +50,6 @@ export class OAuthService {
     const scope = this.getScope(provider);
     const redirectUri = `${this.REDIRECT_BASE_URL}/${provider}`;
 
-    console.log('OAuth Configuration:');
-    console.log('Provider:', provider);
-    console.log('Client ID:', clientId);
-    console.log('Redirect URI:', redirectUri);
-    console.log('Scope:', scope);
-
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -53,10 +57,7 @@ export class OAuthService {
       scope: scope,
     });
 
-    const oauthUrl = `${baseUrl}?${params.toString()}`;
-    console.log('Generated OAuth URL:', oauthUrl);
-    
-    return oauthUrl;
+    return `${baseUrl}?${params.toString()}`;
   }
 
   static async handleOAuthCallback(
@@ -64,17 +65,10 @@ export class OAuthService {
     code: string
   ): Promise<OAuthUserProfile> {
     try {
-      // Exchange code for access token
       const accessToken = await this.exchangeCodeForToken(provider, code);
-
-      // Fetch user profile
-      const userProfile = await this.fetchUserProfile(provider, accessToken);
-
-      return userProfile;
+      return this.fetchUserProfile(provider, accessToken);
     } catch (error) {
-      throw new Error(
-        `OAuth callback failed for ${provider}: ${error.message}`
-      );
+      throw new Error(`OAuth callback failed for ${provider}: ${error.message}`);
     }
   }
 
@@ -84,6 +78,8 @@ export class OAuthService {
         return 'https://accounts.google.com/o/oauth2/v2/auth';
       case 'discord':
         return 'https://discord.com/api/oauth2/authorize';
+      case 'github':
+        return 'https://github.com/login/oauth/authorize';
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -92,15 +88,14 @@ export class OAuthService {
   private static getClientId(provider: OAuthProvider): string {
     switch (provider) {
       case 'google':
-        if (!this.GOOGLE_CLIENT_ID) {
-          throw new Error('GOOGLE_CLIENT_ID not configured');
-        }
+        if (!this.GOOGLE_CLIENT_ID) throw new Error('GOOGLE_CLIENT_ID not configured');
         return this.GOOGLE_CLIENT_ID;
       case 'discord':
-        if (!this.DISCORD_CLIENT_ID) {
-          throw new Error('DISCORD_CLIENT_ID not configured');
-        }
+        if (!this.DISCORD_CLIENT_ID) throw new Error('DISCORD_CLIENT_ID not configured');
         return this.DISCORD_CLIENT_ID;
+      case 'github':
+        if (!this.GITHUB_CLIENT_ID) throw new Error('GITHUB_CLIENT_ID not configured');
+        return this.GITHUB_CLIENT_ID;
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -112,6 +107,8 @@ export class OAuthService {
         return 'openid email profile';
       case 'discord':
         return 'identify email';
+      case 'github':
+        return 'read:user user:email';
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -124,15 +121,22 @@ export class OAuthService {
     const tokenUrl = this.getTokenUrl(provider);
     const clientSecret = this.getClientSecret(provider);
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+
+    // GitHub requires Accept: application/json to get JSON response
+    if (provider === 'github') {
+      headers['Accept'] = 'application/json';
+    }
+
     const response = await fetch(tokenUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers,
       body: new URLSearchParams({
         client_id: this.getClientId(provider),
         client_secret: clientSecret,
-        code: code,
+        code,
         grant_type: 'authorization_code',
         redirect_uri: `${this.REDIRECT_BASE_URL}/${provider}`,
       }),
@@ -144,6 +148,11 @@ export class OAuthService {
     }
 
     const data = await response.json();
+
+    if (data.error) {
+      throw new Error(`Token exchange error: ${data.error_description || data.error}`);
+    }
+
     return data.access_token;
   }
 
@@ -153,6 +162,8 @@ export class OAuthService {
         return 'https://oauth2.googleapis.com/token';
       case 'discord':
         return 'https://discord.com/api/oauth2/token';
+      case 'github':
+        return 'https://github.com/login/oauth/access_token';
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -161,15 +172,14 @@ export class OAuthService {
   private static getClientSecret(provider: OAuthProvider): string {
     switch (provider) {
       case 'google':
-        if (!this.GOOGLE_CLIENT_SECRET) {
-          throw new Error('GOOGLE_CLIENT_SECRET not configured');
-        }
+        if (!this.GOOGLE_CLIENT_SECRET) throw new Error('GOOGLE_CLIENT_SECRET not configured');
         return this.GOOGLE_CLIENT_SECRET;
       case 'discord':
-        if (!this.DISCORD_CLIENT_SECRET) {
-          throw new Error('DISCORD_CLIENT_SECRET not configured');
-        }
+        if (!this.DISCORD_CLIENT_SECRET) throw new Error('DISCORD_CLIENT_SECRET not configured');
         return this.DISCORD_CLIENT_SECRET;
+      case 'github':
+        if (!this.GITHUB_CLIENT_SECRET) throw new Error('GITHUB_CLIENT_SECRET not configured');
+        return this.GITHUB_CLIENT_SECRET;
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -181,11 +191,16 @@ export class OAuthService {
   ): Promise<OAuthUserProfile> {
     const userInfoUrl = this.getUserInfoUrl(provider);
 
-    const response = await fetch(userInfoUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+    };
+
+    if (provider === 'github') {
+      headers['Accept'] = 'application/vnd.github+json';
+      headers['X-GitHub-Api-Version'] = '2022-11-28';
+    }
+
+    const response = await fetch(userInfoUrl, { headers });
 
     if (!response.ok) {
       throw new Error(`Failed to fetch user profile from ${provider}`);
@@ -198,6 +213,8 @@ export class OAuthService {
         return this.parseGoogleUserInfo(userInfo as GoogleUserInfo);
       case 'discord':
         return this.parseDiscordUserInfo(userInfo as DiscordUserInfo);
+      case 'github':
+        return this.parseGitHubUserInfo(userInfo as GitHubUserInfo, accessToken);
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -209,14 +226,14 @@ export class OAuthService {
         return 'https://www.googleapis.com/oauth2/v2/userinfo';
       case 'discord':
         return 'https://discord.com/api/users/@me';
+      case 'github':
+        return 'https://api.github.com/user';
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
   }
 
-  private static parseGoogleUserInfo(
-    userInfo: GoogleUserInfo
-  ): OAuthUserProfile {
+  private static parseGoogleUserInfo(userInfo: GoogleUserInfo): OAuthUserProfile {
     return {
       email: userInfo.email,
       name: userInfo.name,
@@ -225,9 +242,7 @@ export class OAuthService {
     };
   }
 
-  private static parseDiscordUserInfo(
-    userInfo: DiscordUserInfo
-  ): OAuthUserProfile {
+  private static parseDiscordUserInfo(userInfo: DiscordUserInfo): OAuthUserProfile {
     const avatarUrl = userInfo.avatar
       ? `https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png`
       : undefined;
@@ -237,6 +252,44 @@ export class OAuthService {
       name: userInfo.username,
       avatarUrl,
       providerId: userInfo.id,
+    };
+  }
+
+  private static async parseGitHubUserInfo(
+    userInfo: GitHubUserInfo,
+    accessToken: string
+  ): Promise<OAuthUserProfile> {
+    let email = userInfo.email;
+
+    // GitHub may not expose email publicly — fetch from emails endpoint
+    if (!email) {
+      const emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+
+      if (emailsRes.ok) {
+        const emails: Array<{ email: string; primary: boolean; verified: boolean }> =
+          await emailsRes.json();
+        const primary = emails.find((e) => e.primary && e.verified);
+        email = primary?.email || emails[0]?.email || null;
+      }
+    }
+
+    if (!email) {
+      throw new Error('GitHub account has no accessible email address');
+    }
+
+    return {
+      email,
+      name: userInfo.name || userInfo.login,
+      avatarUrl: userInfo.avatar_url,
+      providerId: String(userInfo.id),
+      githubUsername: userInfo.login,
+      githubId: String(userInfo.id),
     };
   }
 }

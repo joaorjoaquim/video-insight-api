@@ -5,6 +5,7 @@ import {
   grantCredits,
   deductCredits,
 } from '../services/credit.service';
+import { secureCompare } from '../lib/secure-compare';
 
 interface GetCreditsRequest {
   Querystring: {
@@ -74,12 +75,10 @@ export async function grantCreditsHandler(
     const { userId, amount, description } = request.body;
     const adminHash = request.headers['x-admin-hash'] as string;
 
-    // Input validation
-    if (!adminHash) {
-      return reply.status(401).send({
-        message: 'Admin hash required in X-Admin-Hash header',
-        success: false,
-      });
+    const expectedHash = process.env.ADMIN_CREDIT_HASH;
+    if (!secureCompare(adminHash, expectedHash)) {
+      request.log.warn({ ip: request.ip }, 'admin_grant_unauthorized_attempt');
+      return reply.status(401).send({ message: 'Unauthorized', success: false });
     }
 
     if (!amount || amount < MIN_CREDIT_AMOUNT || amount > MAX_CREDIT_AMOUNT) {
@@ -96,18 +95,14 @@ export async function grantCreditsHandler(
       });
     }
 
-    // Sanitize description
     const sanitizedDescription = description.trim().substring(0, 500);
 
-    // Audit log for admin action
-    request.log.info('Admin credit grant attempt', {
-      adminHash: adminHash.substring(0, 8) + '...', // Log partial hash for audit
+    request.log.info({
       amount,
       userId: userId || 'all_users',
       description: sanitizedDescription,
       ip: request.ip,
-      userAgent: request.headers['user-agent'],
-    });
+    }, 'admin_credit_grant_attempt');
 
     const result = await grantCredits(
       { userId, amount, description: sanitizedDescription },
@@ -156,12 +151,10 @@ export async function deductCreditsHandler(
     const { userId, amount, description } = request.body;
     const adminHash = request.headers['x-admin-hash'] as string;
 
-    // Input validation
-    if (!adminHash) {
-      return reply.status(401).send({
-        message: 'Admin hash required in X-Admin-Hash header',
-        success: false,
-      });
+    const expectedHash = process.env.ADMIN_CREDIT_HASH;
+    if (!secureCompare(adminHash, expectedHash)) {
+      request.log.warn({ ip: request.ip }, 'admin_deduct_unauthorized_attempt');
+      return reply.status(401).send({ message: 'Unauthorized', success: false });
     }
 
     if (!amount || amount < MIN_CREDIT_AMOUNT || amount > MAX_CREDIT_AMOUNT) {
@@ -178,18 +171,14 @@ export async function deductCreditsHandler(
       });
     }
 
-    // Sanitize description
     const sanitizedDescription = description.trim().substring(0, 500);
 
-    // Audit log for admin action
-    request.log.info('Admin credit deduction attempt', {
-      adminHash: adminHash.substring(0, 8) + '...', // Log partial hash for audit
+    request.log.info({
       amount,
       userId: userId || 'all_users',
       description: sanitizedDescription,
       ip: request.ip,
-      userAgent: request.headers['user-agent'],
-    });
+    }, 'admin_credit_deduct_attempt');
 
     const result = await deductCredits(
       { userId, amount, description: sanitizedDescription },

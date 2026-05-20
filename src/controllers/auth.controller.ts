@@ -4,39 +4,59 @@ import {
   validatePassword,
   createUser,
   createOrUpdateOAuthUser,
+  findUserByReferralCode,
 } from '../services/user.service';
 import { OAuthService, OAuthProvider } from '../services/oauth.service';
+import { grantCreditsInternal } from '../services/credit.service';
+import { UserRepository } from '../repositories/user.repository';
 
 export async function signupController(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  const { email, password } = request.body as {
+  const { email, password, referralCode } = request.body as {
     email: string;
     password: string;
+    referralCode?: string;
   };
 
   try {
-    // Check if user already exists
     const existingUser = await getUserByEmail(email);
     if (existingUser) {
       return reply.status(409).send({ message: 'User already exists' });
     }
 
-    // Extract name from email (before @)
     const name = email.split('@')[0];
-
     const user = await createUser({ email, password, name });
+
+    // Apply referral bonus silently — never fail signup over this
+    if (referralCode) {
+      try {
+        const referrer = await findUserByReferralCode(referralCode);
+        if (referrer && referrer.id !== user.id) {
+          await UserRepository.update(user.id as number, { referredByCode: referralCode });
+          await grantCreditsInternal(
+            user.id as number,
+            10,
+            'Referral signup bonus',
+            'referral_signup'
+          );
+          request.log.info(
+            { userId: user.id, referredByCode: referralCode },
+            'referral_signup_bonus_granted'
+          );
+        }
+      } catch (refErr) {
+        request.log.warn({ refErr, referralCode }, 'referral_signup_bonus_failed_silently');
+      }
+    }
 
     const token = await reply.jwtSign(
       { userId: user.id, email: user.email },
       { expiresIn: '15d' }
     );
 
-    return reply.status(201).send({
-      user,
-      token,
-    });
+    return reply.status(201).send({ user, token });
   } catch (error) {
     request.log.error(error);
     return reply.status(500).send({ message: 'Internal server error' });
@@ -93,7 +113,7 @@ export async function oauthRedirectController(
   const { provider } = request.params as { provider: string };
 
   try {
-    if (!['google', 'discord'].includes(provider)) {
+    if (!['google', 'discord', 'github'].includes(provider)) {
       return reply.status(400).send({ message: 'Unsupported provider' });
     }
 
@@ -112,67 +132,39 @@ export async function oauthCallbackController(
   const { provider } = request.params as { provider: string };
   const { code } = request.query as { code: string };
 
-  console.log('OAuth Callback received:');
-  console.log('Provider:', provider);
-  console.log('Code exists:', !!code);
-  console.log('Query params:', request.query);
-
   try {
-    if (!['google', 'discord'].includes(provider)) {
-      console.log('Unsupported provider:', provider);
+    if (!['google', 'discord', 'github'].includes(provider)) {
+      request.log.warn({ provider }, 'oauth_callback_unsupported_provider');
       return reply.status(400).send({ message: 'Unsupported provider' });
     }
 
     if (!code) {
-      console.log('No authorization code provided');
       return reply.status(400).send({ message: 'Authorization code required' });
     }
 
-    console.log('Processing OAuth callback for provider:', provider);
+    const userProfile = await OAuthService.handleOAuthCallback(provider as OAuthProvider, code);
 
-    // Handle OAuth callback
-    const userProfile = await OAuthService.handleOAuthCallback(
-      provider as OAuthProvider,
-      code
-    );
-
-    console.log('User profile received:', {
-      email: userProfile.email,
-      name: userProfile.name,
-      providerId: userProfile.providerId
-    });
-
-    // Create or update user
     const user = await createOrUpdateOAuthUser(
       provider,
       userProfile.providerId,
       userProfile.email,
       userProfile.name,
-      userProfile.avatarUrl
+      userProfile.avatarUrl,
+      userProfile.githubUsername,
+      userProfile.githubId
     );
 
-    console.log('User created/updated:', user.id);
+    request.log.info({ userId: user.id, provider }, 'oauth_callback_success');
 
-    // Generate JWT token
     const token = await reply.jwtSign(
       { userId: user.id, email: user.email },
       { expiresIn: '15d' }
     );
 
-    console.log('JWT token generated');
-
-    // Get frontend URL from environment or use default
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
-    console.log('Redirecting to frontend:', `${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
-    
-    // Redirect to frontend with token
     return reply.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
   } catch (error) {
-    console.error('OAuth callback error:', error);
-    request.log.error(error);
-    
-    // Redirect to frontend with error
+    request.log.error({ error, provider }, 'oauth_callback_error');
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     return reply.redirect(`${frontendUrl}/auth/callback?error=oauth_failed`);
   }

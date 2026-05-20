@@ -1,24 +1,29 @@
+import { randomBytes } from 'crypto';
 import { UserRepository } from '../repositories/user.repository';
 import { UserEntity } from '../entities/User';
 import bcrypt from 'bcrypt';
+import logger from '../config/logger';
+
+function generateReferralCode(): string {
+  return randomBytes(4).toString('hex');
+}
 
 export async function createUser(
   userData: Partial<UserEntity>
 ): Promise<Partial<UserEntity>> {
-  // Hash password only if provided (OAuth users don't have passwords)
   if (userData.password) {
-    const saltRounds = 10;
-    userData.password = await bcrypt.hash(userData.password, saltRounds);
+    userData.password = await bcrypt.hash(userData.password, 10);
   }
 
-  // Set default credits for new users
-  const userWithDefaults = {
+  const referralCode = generateReferralCode();
+  const user = UserRepository.create({
     ...userData,
-    credits: 100, // Default balance for new users
-  };
+    credits: 100,
+    referralCode,
+  });
 
-  const user = UserRepository.create(userWithDefaults);
   const savedUser = await UserRepository.save(user);
+  logger.info({ userId: savedUser.id, referralCode }, 'user_created');
 
   const { password, ...userWithoutPassword } = savedUser;
   return userWithoutPassword;
@@ -29,44 +34,48 @@ export async function createOrUpdateOAuthUser(
   providerId: string,
   email: string,
   name: string,
-  avatarUrl?: string
+  avatarUrl?: string,
+  githubUsername?: string,
+  githubId?: string
 ): Promise<Partial<UserEntity>> {
-  // Check if user exists by providerId
-  let user = await UserRepository.findOne({
-    where: { providerId, provider },
-  });
+  let user = await UserRepository.findOne({ where: { providerId, provider } });
 
   if (!user) {
-    // Check if user exists by email
-    user = await UserRepository.findOne({
-      where: { email },
-    });
+    user = await UserRepository.findOne({ where: { email } });
 
     if (user) {
-      // Update existing user with OAuth info
       user.provider = provider;
       user.providerId = providerId;
       user.avatarUrl = avatarUrl;
-      user.name = name; // Update name from OAuth
+      user.name = name;
+      if (githubUsername) user.githubUsername = githubUsername;
+      if (githubId) user.githubId = githubId;
+      if (!user.referralCode) user.referralCode = generateReferralCode();
     } else {
-      // Create new OAuth user with default credits
       user = UserRepository.create({
         email,
         name,
         avatarUrl,
         provider,
         providerId,
-        password: null, // OAuth users don't have passwords
-        credits: 100, // Default balance for new OAuth users
+        password: null,
+        credits: 100,
+        referralCode: generateReferralCode(),
+        githubUsername: githubUsername || null,
+        githubId: githubId || null,
       });
     }
   } else {
-    // Update existing OAuth user
     user.name = name;
     user.avatarUrl = avatarUrl;
+    if (githubUsername) user.githubUsername = githubUsername;
+    if (githubId) user.githubId = githubId;
+    if (!user.referralCode) user.referralCode = generateReferralCode();
   }
 
   const savedUser = await UserRepository.save(user);
+  logger.info({ userId: savedUser.id, provider }, 'oauth_user_upserted');
+
   const { password, ...userWithoutPassword } = savedUser;
   return userWithoutPassword;
 }
@@ -95,4 +104,25 @@ export async function validatePassword(
   password: string
 ): Promise<boolean> {
   return await bcrypt.compare(password, user.password);
+}
+
+export async function findUserByReferralCode(
+  code: string
+): Promise<UserEntity | null> {
+  return UserRepository.findOne({ where: { referralCode: code } });
+}
+
+export async function ensureReferralCode(userId: number): Promise<string> {
+  const user = await UserRepository.findOne({ where: { id: userId } });
+  if (!user) throw new Error('User not found');
+  if (user.referralCode) return user.referralCode;
+
+  const code = generateReferralCode();
+  await UserRepository.update(userId, { referralCode: code });
+  logger.info({ userId, referralCode: code }, 'referral_code_generated');
+  return code;
+}
+
+export async function countReferrals(referralCode: string): Promise<number> {
+  return UserRepository.count({ where: { referredByCode: referralCode } });
 }

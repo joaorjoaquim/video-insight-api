@@ -1,4 +1,4 @@
-﻿import { OpenAI } from 'openai';
+import { OpenAI } from 'openai';
 import logger from '../config/logger';
 import { logVideoEvent } from '../lib/log-video-event';
 import type { VideoPipelineContext } from '../lib/video-types';
@@ -6,7 +6,7 @@ import type { VideoPipelineContext } from '../lib/video-types';
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // Helper function to count tokens (rough estimation)
 function estimateTokenCount(text: string): number {
-  // Rough estimation: 1 token â‰ˆ 4 characters for English text
+  // Rough estimation: 1 token ≈ 4 characters for English text
   return Math.ceil(text.length / 4);
 }
 
@@ -75,47 +75,42 @@ export async function generateAIInsights(transcription: string, ctx?: VideoPipel
   const requestId = `ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   let totalTokensUsed = 0;
 
-  console.log(`[AI_INSIGHTS] Starting optimized AI processing`, {
+  logger.info({
     requestId,
     transcriptionLength: transcription.length,
     estimatedTokens: estimateTokenCount(transcription),
-    timestamp: new Date().toISOString(),
-  });
+  }, `[AI_INSIGHTS] Starting optimized AI processing`);
 
   try {
     // Step 0: Detect language
-    console.log(`[AI_INSIGHTS] Step 0: Detecting language`, {
+    logger.info({
       requestId,
-      timestamp: new Date().toISOString(),
-    });
+    }, `[AI_INSIGHTS] Step 0: Detecting language`);
 
     const language = await detectLanguage(transcription);
     const languagePrompts = getLanguagePrompts(language);
 
-    console.log(`[AI_INSIGHTS] Language detection completed`, {
+    logger.info({
       requestId,
       detectedLanguage: language,
-      timestamp: new Date().toISOString(),
-    });
+    }, `[AI_INSIGHTS] Language detection completed`);
 
     // Step 1: Deduplication
-    console.log(`[AI_INSIGHTS] Step 1: Deduplicating transcription`, {
+    logger.info({
       requestId,
       originalLength: transcription.length,
-      timestamp: new Date().toISOString(),
-    });
+    }, `[AI_INSIGHTS] Step 1: Deduplicating transcription`);
 
     const deduplicatedText = removeDuplicateSegments(transcription);
 
-    console.log(`[AI_INSIGHTS] Deduplication completed`, {
+    logger.info({
       requestId,
       originalLength: transcription.length,
       deduplicatedLength: deduplicatedText.length,
       reductionPercent: Math.round(
         (1 - deduplicatedText.length / transcription.length) * 100
       ),
-      timestamp: new Date().toISOString(),
-    });
+    }, `[AI_INSIGHTS] Deduplication completed`);
 
     // Step 2: Create robust chunks for AI processing
     const tokenCount = estimateTokenCount(deduplicatedText);
@@ -124,13 +119,12 @@ export async function generateAIInsights(transcription: string, ctx?: VideoPipel
         ? createRobustChunks(deduplicatedText, 1500)
         : [deduplicatedText];
 
-    console.log(`[AI_INSIGHTS] Step 2: Text chunking for AI`, {
+    logger.info({
       requestId,
       totalTokens: tokenCount,
       numberOfChunks: chunks.length,
       needsChunking: tokenCount > 2000,
-      timestamp: new Date().toISOString(),
-    });
+    }, `[AI_INSIGHTS] Step 2: Text chunking for AI`);
 
     // Step 3: Process all chunks with retry logic for AI insights only
     const allResults = await processAllChunksWithRetry(
@@ -150,7 +144,7 @@ export async function generateAIInsights(transcription: string, ctx?: VideoPipel
     const coverage = validateAICoverage(deduplicatedText, consolidatedAI);
     if (coverage < 0.3) {
       // Reduced from 0.9 to 0.3 (30% coverage is reasonable)
-      console.warn(
+      logger.warn(
         `[AI_INSIGHTS] Low AI coverage detected: ${(coverage * 100).toFixed(1)}%`,
         {
           requestId,
@@ -161,7 +155,7 @@ export async function generateAIInsights(transcription: string, ctx?: VideoPipel
       // Don't throw error, just log warning and continue
     }
 
-    console.log(
+    logger.info(
       `[AI_INSIGHTS] Optimized AI processing completed successfully`,
       {
         requestId,
@@ -179,14 +173,13 @@ export async function generateAIInsights(transcription: string, ctx?: VideoPipel
     const errorMessage =
       error instanceof Error ? error.message : 'AI processing failed';
 
-    console.error(`[AI_INSIGHTS] Optimized AI processing failed`, {
+    logger.error({
       requestId,
       error: errorMessage,
       stack: error instanceof Error ? error.stack : undefined,
       totalTime: `${totalTime}ms`,
       totalTokensUsed,
-      timestamp: new Date().toISOString(),
-    });
+    }, `[AI_INSIGHTS] Optimized AI processing failed`);
 
     throw error;
   }
@@ -239,11 +232,10 @@ async function processAllChunksWithRetry(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`[AI_INSIGHTS] Processing attempt ${attempt}/${maxRetries}`, {
+      logger.info({
         requestId,
         chunksToProcess: currentChunks.length,
-        timestamp: new Date().toISOString(),
-      });
+      }, `[AI_INSIGHTS] Processing attempt ${attempt}/${maxRetries}`);
 
       for (let i = 0; i < currentChunks.length; i++) {
         const chunk = currentChunks[i];
@@ -257,7 +249,7 @@ async function processAllChunksWithRetry(
         results.push(chunkResult.result);
         totalTokensUsed += chunkResult.tokensUsed;
 
-        console.log(
+        logger.info(
           `[AI_INSIGHTS] Chunk ${i + 1}/${currentChunks.length} processed`,
           {
             requestId,
@@ -272,11 +264,10 @@ async function processAllChunksWithRetry(
       // If we get here, all chunks processed successfully
       return { results, totalTokensUsed };
     } catch (error) {
-      console.error(`[AI_INSIGHTS] Attempt ${attempt} failed`, {
+      logger.error({
         requestId,
         error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString(),
-      });
+      }, `[AI_INSIGHTS] Attempt ${attempt} failed`);
 
       if (attempt === maxRetries) {
         throw error;
@@ -284,11 +275,10 @@ async function processAllChunksWithRetry(
 
       // Reduce chunk size and retry
       currentChunks = createSmallerChunks(currentChunks, 800); // Reduce to 800 tokens
-      console.log(`[AI_INSIGHTS] Reducing chunk size for retry`, {
+      logger.info({
         requestId,
         newChunkCount: currentChunks.length,
-        timestamp: new Date().toISOString(),
-      });
+      }, `[AI_INSIGHTS] Reducing chunk size for retry`);
     }
   }
 
@@ -369,7 +359,7 @@ async function processChunkWithRetry(
       // Clean the response and extract JSON
       const cleanedResponse = extractJSONFromResponse(response);
 
-      console.log(`[AI_INSIGHTS] Processing chunk ${chunkIndex} response`, {
+      logger.info({
         requestId,
         chunkIndex,
         attempt,
@@ -377,14 +367,13 @@ async function processChunkWithRetry(
         cleanedResponseLength: cleanedResponse.length,
         responseStart: response.substring(0, 100),
         cleanedStart: cleanedResponse.substring(0, 100),
-        timestamp: new Date().toISOString(),
-      });
+      }, `[AI_INSIGHTS] Processing chunk ${chunkIndex} response`);
 
       let result;
       try {
         result = JSON.parse(cleanedResponse);
       } catch (parseError) {
-        console.error(
+        logger.error(
           `[AI_INSIGHTS] JSON parsing failed for chunk ${chunkIndex}`,
           {
             requestId,
@@ -402,23 +391,23 @@ async function processChunkWithRetry(
         // Create a fallback result
         result = {
           summary: {
-            text: `AnÃ¡lise da parte ${chunkIndex} da transcriÃ§Ã£o`,
+            text: `Análise da parte ${chunkIndex} da transcrição`,
             metrics: [
               { label: 'Duration', value: 'N/A' },
               { label: 'Main Topics', value: '1' },
               { label: 'Key Insights', value: '1' },
               { label: 'Complexity', value: 'Basic' },
             ],
-            topics: ['AnÃ¡lise de transcriÃ§Ã£o'],
+            topics: ['Análise de transcrição'],
           },
           insights: {
-            chips: [{ label: '1 insight extraÃ­do', variant: 'secondary' }],
+            chips: [{ label: '1 insight extraído', variant: 'secondary' }],
             sections: [
               {
-                title: 'AnÃ¡lise BÃ¡sica',
-                icon: 'ðŸ“',
+                title: 'Análise Básica',
+                icon: '📝',
                 items: [
-                  { text: 'ConteÃºdo processado com sucesso', confidence: 80 },
+                  { text: 'Conteúdo processado com sucesso', confidence: 80 },
                 ],
               },
             ],
@@ -427,14 +416,14 @@ async function processChunkWithRetry(
             root: 'Video Insights',
             branches: [
               {
-                label: 'ConteÃºdo Analisado',
+                label: 'Conteúdo Analisado',
                 children: [],
               },
             ],
           },
         };
 
-        console.log(
+        logger.info(
           `[AI_INSIGHTS] Using fallback result for chunk ${chunkIndex}`,
           {
             requestId,
@@ -445,19 +434,18 @@ async function processChunkWithRetry(
         );
       }
 
-      console.log(`[AI_INSIGHTS] Chunk ${chunkIndex} processed successfully`, {
+      logger.info({
         requestId,
         chunkIndex,
         attempt,
         tokensUsed,
         hasSummary: !!result.summary,
         hasInsights: !!result.insights,
-        timestamp: new Date().toISOString(),
-      });
+      }, `[AI_INSIGHTS] Chunk ${chunkIndex} processed successfully`);
 
       return { result, tokensUsed };
     } catch (error) {
-      console.error(
+      logger.error(
         `[AI_INSIGHTS] Chunk ${chunkIndex} attempt ${attempt} failed`,
         {
           requestId,
@@ -487,7 +475,7 @@ async function consolidateAIResults(
   chunkResults: any[],
   requestId: string
 ): Promise<any> {
-  console.log(
+  logger.info(
     `[AI_INSIGHTS] Consolidating ${chunkResults.length} chunk results`,
     {
       requestId,
@@ -543,13 +531,12 @@ async function consolidateAIResults(
     },
   };
 
-  console.log(`[AI_INSIGHTS] AI consolidation completed`, {
+  logger.info({
     requestId,
     summaryLength: allSummaries.length,
     insightsCount: diverseSections.length,
     branchesCount: allBranches.length,
-    timestamp: new Date().toISOString(),
-  });
+  }, `[AI_INSIGHTS] AI consolidation completed`);
 
   return consolidatedAI;
 }
@@ -559,52 +546,52 @@ function createDiverseInsightsSections(allSections: any[]): any[] {
   const sectionTypes = [
     {
       title: 'Key Insights',
-      icon: 'ðŸ’¡',
+      icon: '💡',
       keywords: ['important', 'key', 'main', 'primary'],
     },
     {
       title: 'Technical Details',
-      icon: 'âš™ï¸',
+      icon: '⚙️',
       keywords: ['technical', 'technology', 'system', 'process'],
     },
     {
       title: 'Financial Analysis',
-      icon: 'ðŸ’°',
+      icon: '💰',
       keywords: ['money', 'financial', 'cost', 'budget', 'investment'],
     },
     {
       title: 'Strategic Points',
-      icon: 'ðŸŽ¯',
+      icon: '🎯',
       keywords: ['strategy', 'strategic', 'planning', 'goal'],
     },
     {
       title: 'Challenges & Solutions',
-      icon: 'ðŸ”§',
+      icon: '🔧',
       keywords: ['challenge', 'problem', 'solution', 'issue'],
     },
     {
       title: 'Best Practices',
-      icon: 'âœ…',
+      icon: '✅',
       keywords: ['best', 'practice', 'recommendation', 'tip'],
     },
     {
       title: 'Market Insights',
-      icon: 'ðŸ“Š',
+      icon: '📊',
       keywords: ['market', 'trend', 'industry', 'business'],
     },
     {
       title: 'Expert Tips',
-      icon: 'ðŸ‘¨â€ðŸ’¼',
+      icon: '👨‍💼',
       keywords: ['expert', 'professional', 'advice', 'guidance'],
     },
     {
       title: 'Innovation Ideas',
-      icon: 'ðŸš€',
+      icon: '🚀',
       keywords: ['innovation', 'creative', 'new', 'future'],
     },
     {
       title: 'Risk Factors',
-      icon: 'âš ï¸',
+      icon: '⚠️',
       keywords: ['risk', 'danger', 'warning', 'caution'],
     },
   ];
@@ -657,7 +644,7 @@ function createDiverseInsightsSections(allSections: any[]): any[] {
   if (finalSections.length === 0) {
     finalSections.push({
       title: 'Key Insights',
-      icon: 'ðŸ’¡',
+      icon: '💡',
       items: [
         { text: 'Video analysis completed successfully', confidence: 90 },
       ],
@@ -764,14 +751,14 @@ function validateAICoverage(originalText: string, aiDashboard: any): number {
       ? coveredTopics.length / originalTopics.length
       : 1;
 
-  console.log(`[AI_INSIGHTS] AI coverage validation`, {
+  logger.info({
     originalTopics: originalTopics.length,
     processedTopics: processedTopics.size,
     coveredTopics: coveredTopics.length,
     coverage: `${(coverage * 100).toFixed(1)}%`,
     originalTopicsSample: originalTopics.slice(0, 5),
     processedTopicsSample: Array.from(processedTopics).slice(0, 5),
-  });
+  }, `[AI_INSIGHTS] AI coverage validation`);
 
   return coverage;
 }
@@ -822,15 +809,14 @@ async function detectLanguage(text: string): Promise<string> {
     });
 
     const language = completion.choices[0]?.message?.content?.trim() || 'en';
-    console.log(`[LANGUAGE_DETECTION] Detected language: ${language}`, {
+    logger.info({
       textLength: text.length,
       sampleText: text.substring(0, 200),
-      timestamp: new Date().toISOString(),
-    });
+    }, `[LANGUAGE_DETECTION] Detected language: ${language}`);
 
     return language;
   } catch (error) {
-    console.warn(
+    logger.warn(
       `[LANGUAGE_DETECTION] Failed to detect language, defaulting to English`,
       {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -845,30 +831,30 @@ async function detectLanguage(text: string): Promise<string> {
 function getLanguagePrompts(language: string) {
   const prompts = {
     pt: {
-      system: `VocÃª Ã© um assistente especializado em anÃ¡lise de transcriÃ§Ãµes de vÃ­deo.
+      system: `Você é um assistente especializado em análise de transcrições de vídeo.
 
-IMPORTANTE: Retorne APENAS JSON vÃ¡lido, sem markdown, sem cÃ³digo, sem texto extra. Apenas o objeto JSON puro.
+IMPORTANTE: Retorne APENAS JSON válido, sem markdown, sem código, sem texto extra. Apenas o objeto JSON puro.
 
 Estrutura JSON esperada:
 {
   "summary": {
-    "text": "Resumo conciso do conteÃºdo",
+    "text": "Resumo conciso do conteúdo",
     "metrics": [
       { "label": "Duration", "value": "N/A" },
       { "label": "Main Topics", "value": "3" },
       { "label": "Key Insights", "value": "5" },
       { "label": "Complexity", "value": "Intermediate" }
     ],
-    "topics": ["TÃ³pico 1", "TÃ³pico 2"]
+    "topics": ["Tópico 1", "Tópico 2"]
   },
   "insights": {
     "chips": [
-      { "label": "5 insights extraÃ­dos", "variant": "secondary" }
+      { "label": "5 insights extraídos", "variant": "secondary" }
     ],
     "sections": [
       {
         "title": "Insights Principais",
-        "icon": "ðŸ’¡",
+        "icon": "💡",
         "items": [
           { "text": "Insight importante", "confidence": 95 }
         ]
@@ -879,9 +865,9 @@ Estrutura JSON esperada:
     "root": "Video Insights",
     "branches": [
       {
-        "label": "TÃ³pico Principal",
+        "label": "Tópico Principal",
         "children": [
-          { "label": "SubtÃ³pico 1" }
+          { "label": "Subtópico 1" }
         ]
       }
     ]
@@ -890,11 +876,11 @@ Estrutura JSON esperada:
       user: (
         chunk: string,
         chunkIndex: number
-      ) => `Analise esta parte da transcriÃ§Ã£o e retorne insights estruturados em JSON. Esta Ã© a parte ${chunkIndex} de uma transcriÃ§Ã£o completa.
+      ) => `Analise esta parte da transcrição e retorne insights estruturados em JSON. Esta é a parte ${chunkIndex} de uma transcrição completa.
 
-IMPORTANTE: Retorne APENAS JSON vÃ¡lido, sem markdown, sem cÃ³digo, sem texto extra. Apenas o objeto JSON puro.
+IMPORTANTE: Retorne APENAS JSON válido, sem markdown, sem código, sem texto extra. Apenas o objeto JSON puro.
 
-TranscriÃ§Ã£o para anÃ¡lise:
+Transcrição para análise:
 ${chunk}`,
     },
     en: {
@@ -921,7 +907,7 @@ Expected JSON structure:
     "sections": [
       {
         "title": "Key Insights",
-        "icon": "ðŸ’¡",
+        "icon": "💡",
         "items": [
           { "text": "Important insight", "confidence": 95 }
         ]

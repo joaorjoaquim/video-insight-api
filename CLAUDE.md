@@ -110,9 +110,9 @@ See `.env.example` for required environment variables.
 
 ---
 
-## Pending Features — Growth System
+## Growth System — Implemented
 
-> **Status:** Frontend UI shells are already built in `video-insight-web/src/app/(private)/wallet/page.tsx`. These endpoints must be implemented before the frontend becomes functional. Once live, no frontend changes are needed.
+> **Status:** All features below are fully implemented and deployed. Frontend UI at `video-insight-web/src/app/(private)/wallet/page.tsx` is now functional.
 
 ---
 

@@ -36,6 +36,39 @@ export class UserEntity {
   @Index()
   providerId: string;
 
+  // GitHub integration fields
+  @Column({ type: 'text', nullable: true })
+  githubUsername: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  githubId: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  githubStarClaimedWeb: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  githubForkClaimedWeb: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  githubStarClaimedApi: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  githubForkClaimedApi: boolean;
+
+  // Referral system fields
+  @Column({ type: 'text', unique: true, nullable: true })
+  @Index()
+  referralCode: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  referredByCode: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  referralRewardGranted: boolean;
+
+  @Column({ type: 'int', default: 0 })
+  referralCreditsEarned: number;
+
   @OneToMany(() => VideoEntity, (video) => video.user)
   videos: VideoEntity[];
 

@@ -12,6 +12,14 @@ export const SignupBodySchema = Type.Object({
     description: 'Senha do usuário',
     example: '123456',
   }),
+  referralCode: Type.Optional(
+    Type.String({
+      minLength: 8,
+      maxLength: 8,
+      description: 'Referral code from an existing user',
+      example: 'a3f8c21b',
+    })
+  ),
 });
 
 // Login Schema
@@ -63,6 +71,7 @@ export const AuthResponseSchema = Type.Object({
 export const OAuthProviderSchema = Type.Union([
   Type.Literal('google'),
   Type.Literal('discord'),
+  Type.Literal('github'),
 ]);
 
 // Error Response Schema

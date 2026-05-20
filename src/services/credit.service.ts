@@ -7,6 +7,8 @@ import {
 } from '../entities/CreditTransaction';
 import { UserEntity } from '../entities/User';
 import { VideoEntity } from '../entities/Video';
+import logger from '../config/logger';
+import { secureCompare } from '../lib/secure-compare';
 
 // Enhanced transaction interface with video information
 export interface TransactionWithVideoInfo {
@@ -61,6 +63,40 @@ export interface AdminCreditRequestWithAuth extends AdminCreditRequest {
 export async function getUserCredits(userId: number): Promise<number> {
   const user = await UserRepository.findOne({ where: { id: userId } });
   return user?.credits || 0;
+}
+
+export async function grantCreditsInternal(
+  userId: number,
+  amount: number,
+  description: string,
+  referenceType?: string,
+  referenceId?: string
+): Promise<boolean> {
+  const user = await UserRepository.findOne({ where: { id: userId } });
+  if (!user) {
+    logger.warn({ userId }, 'grant_credits_internal_user_not_found');
+    return false;
+  }
+
+  const transaction = CreditTransactionRepository.create({
+    userId,
+    amount,
+    type: TransactionType.ADMIN_GRANT,
+    status: TransactionStatus.COMPLETED,
+    description,
+    referenceType: referenceType || 'system',
+    referenceId,
+  });
+
+  await CreditTransactionRepository.save(transaction);
+  await UserRepository.update(userId, { credits: user.credits + amount });
+
+  logger.info(
+    { userId, amount, description, creditsBefore: user.credits, creditsAfter: user.credits + amount },
+    'grant_credits_internal_completed'
+  );
+
+  return true;
 }
 
 export async function getUserTransactionHistory(
@@ -192,7 +228,7 @@ export async function grantCredits(
 
   // Verify admin hash
   const expectedHash = process.env.ADMIN_CREDIT_HASH;
-  if (!expectedHash || adminHash !== expectedHash) {
+  if (!secureCompare(adminHash, expectedHash)) {
     return { success: false, message: 'Invalid admin hash' };
   }
 
@@ -255,7 +291,7 @@ export async function deductCredits(
 
   // Verify admin hash
   const expectedHash = process.env.ADMIN_CREDIT_HASH;
-  if (!expectedHash || adminHash !== expectedHash) {
+  if (!secureCompare(adminHash, expectedHash)) {
     return { success: false, message: 'Invalid admin hash' };
   }
 
