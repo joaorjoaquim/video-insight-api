@@ -7,7 +7,7 @@ import { cacheService } from '../config/redis.config';
 interface ClaimGitHubBody {
   githubUsername?: string;
   action: GitHubAction;
-  repo: GitHubRepo;
+  repo?: GitHubRepo;
 }
 
 const RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -17,14 +17,11 @@ export async function claimGitHubCreditsHandler(
   reply: FastifyReply
 ) {
   const userId = (request.user as any)?.userId as number;
-  const { githubUsername, action, repo } = request.body as ClaimGitHubBody;
+  const { githubUsername, action, repo: repoInput } = request.body as ClaimGitHubBody;
+  const repo: GitHubRepo = repoInput ?? 'web';
 
   if (!['star', 'fork'].includes(action)) {
     return reply.status(400).send({ message: 'Invalid action. Must be "star" or "fork"' });
-  }
-
-  if (!['web', 'api'].includes(repo)) {
-    return reply.status(400).send({ message: 'Invalid repo. Must be "web" or "api"' });
   }
 
   // Per-user rate limit: 1 req/min on this endpoint

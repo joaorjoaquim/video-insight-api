@@ -69,7 +69,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
       schema: {
         body: Type.Object({
           action: Type.Union([Type.Literal('star'), Type.Literal('fork')]),
-          repo: Type.Union([Type.Literal('web'), Type.Literal('api')]),
+          repo: Type.Optional(Type.Union([Type.Literal('web'), Type.Literal('api')])),
           githubUsername: Type.Optional(Type.String({ minLength: 1, maxLength: 39 })),
         }),
         response: {
