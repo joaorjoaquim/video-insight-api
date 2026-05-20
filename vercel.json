@@ -22,7 +22,7 @@
   "crons": [
     {
       "path": "/internal/cron/expire-promos",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/internal/cron/restore-credits",
