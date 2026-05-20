@@ -344,7 +344,7 @@ async function processChunkWithRetry(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -805,7 +805,7 @@ export function formatRawTranscription(
 async function detectLanguage(text: string): Promise<string> {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4-turbo-preview',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
