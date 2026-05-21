@@ -240,6 +240,16 @@ WEEKLY_CREDIT_FLOOR=100
 **Issue:** TypeBox schema accepts any non-empty string as `email`. Malformed addresses are stored in the database.  
 **Fix:** Imported `ajv-formats` and registered it as the first AJV plugin in the Fastify config. Now the `format: 'email'` keyword in `auth.schema.ts` is properly validated by AJV.
 
+### ✅ Fixed: `referralCode` schema blocked signup when code wasn't exactly 8 chars
+**File:** `src/schemas/auth.schema.ts`  
+**Issue:** `referralCode` in `SignupBodySchema` had `minLength: 8, maxLength: 8`. AJV validates schemas before the controller runs, so any `?ref=` param that wasn't exactly 8 characters (e.g. numeric user IDs like `19`, or longer codes) caused a 400 schema validation error before the graceful controller fallback could execute.  
+**Fix:** Removed `minLength: 8` constraint; kept only `maxLength: 64`. Invalid codes now reach the controller, which handles them gracefully.
+
+### ✅ Fixed: Dead `githubUsername` field in GitHub claim request body schema
+**File:** `src/routes/credit.routes.ts`  
+**Issue:** `POST /credits/claim/github` TypeBox schema included `githubUsername: Type.Optional(Type.String(...))` but the controller never reads it from the request body (it uses `user.githubUsername` from the JWT session exclusively, per the security fix in Task 7). The extra field created a misleading API contract implying username overrides were accepted.  
+**Fix:** Removed the dead `githubUsername` field from the route schema. Request body now only contains `action` and optional `repo`.
+
 ---
 
 ## Known Gaps / Future Work
