@@ -103,28 +103,27 @@ export async function grantCreditsInternal(
 export async function getUserTransactionHistory(
   userId: number,
   limit?: number,
-  offset?: number
-): Promise<{ transactions: TransactionWithVideoInfo[]; total: number }> {
-  const queryBuilder = CreditTransactionRepository.createQueryBuilder(
-    'transaction'
-  )
-    .leftJoinAndSelect('transaction.user', 'user')
+  cursor?: string
+): Promise<{ transactions: TransactionWithVideoInfo[]; nextCursor: string | null }> {
+  const queryBuilder = CreditTransactionRepository.createQueryBuilder('transaction')
     .leftJoinAndSelect('transaction.video', 'video')
     .where('transaction.userId = :userId', { userId })
     .orderBy('transaction.createdAt', 'DESC');
+
+  if (cursor) {
+    queryBuilder.andWhere('transaction.createdAt < :cursor', { cursor: new Date(cursor) });
+  }
 
   if (limit) {
     queryBuilder.limit(limit);
   }
 
-  if (offset) {
-    queryBuilder.offset(offset);
-  }
-
   const transactions = await queryBuilder.getMany();
-  const total = await CreditTransactionRepository.count({ where: { userId } });
 
-  // Transform to include video info in the expected format
+  const nextCursor = transactions.length === limit
+    ? transactions[transactions.length - 1].createdAt.toISOString()
+    : null;
+
   const enhancedTransactions: TransactionWithVideoInfo[] = transactions.map(
     (transaction) => {
       const enhancedTransaction: TransactionWithVideoInfo = { ...transaction };
@@ -144,7 +143,7 @@ export async function getUserTransactionHistory(
 
   return {
     transactions: enhancedTransactions,
-    total,
+    nextCursor,
   };
 }
 

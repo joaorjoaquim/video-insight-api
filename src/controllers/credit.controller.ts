@@ -10,7 +10,7 @@ import { secureCompare } from '../lib/secure-compare';
 interface GetCreditsRequest {
   Querystring: {
     limit?: string;
-    offset?: string;
+    cursor?: string;
   };
 }
 
@@ -33,29 +33,33 @@ export async function getUserCreditsHandler(
 ) {
   try {
     const userId = (request.user as any)?.userId;
-    const { limit, offset } = request.query;
+    const { limit, cursor } = request.query;
 
-    // Validate and sanitize pagination parameters
     const sanitizedLimit = Math.min(
       limit ? parseInt(limit) || MAX_PAGINATION_LIMIT : MAX_PAGINATION_LIMIT,
       MAX_PAGINATION_LIMIT
     );
-    const sanitizedOffset = Math.max(offset ? parseInt(offset) || 0 : 0, 0);
+
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      if (isNaN(cursorDate.getTime())) {
+        return reply.status(400).send({ message: 'Invalid cursor format' });
+      }
+    }
 
     const credits = await getUserCredits(userId);
-    const { transactions, total } = await getUserTransactionHistory(
+    const { transactions, nextCursor } = await getUserTransactionHistory(
       userId,
       sanitizedLimit,
-      sanitizedOffset
+      cursor || undefined
     );
 
     return reply.send({
       credits,
       transactions,
       pagination: {
-        total,
+        nextCursor,
         limit: sanitizedLimit,
-        offset: sanitizedOffset,
       },
     });
   } catch (error) {

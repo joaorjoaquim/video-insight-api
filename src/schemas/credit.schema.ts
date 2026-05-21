@@ -27,9 +27,8 @@ export const GetCreditsResponseSchema = Type.Object({
     })
   ),
   pagination: Type.Object({
-    total: Type.Number(),
-    limit: Type.Number(),
-    offset: Type.Number(),
+    nextCursor: Type.Union([Type.String(), Type.Null()], { description: 'Cursor for next page, null if no more results', example: '2026-01-15T10:30:00.000Z' }),
+    limit: Type.Number({ example: 20 }),
   }),
 });
 
