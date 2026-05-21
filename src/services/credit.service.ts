@@ -122,7 +122,7 @@ export async function getUserTransactionHistory(
     .orderBy('transaction.createdAt', 'DESC')
     .addOrderBy('transaction.id', 'DESC');
 
-  if (cursorDate && cursorId !== null && !isNaN(cursorId)) {
+  if (cursorDate && !isNaN(cursorDate.getTime()) && cursorId !== null && !isNaN(cursorId)) {
     queryBuilder.andWhere(
       '(transaction.createdAt < :cursorDate OR (transaction.createdAt = :cursorDate AND transaction.id < :cursorId))',
       { cursorDate, cursorId }

@@ -132,7 +132,7 @@ export async function grantCreditsHandler(
       });
     }
   } catch (error) {
-    request.log.error('Admin credit grant error:', error);
+    request.log.error({ err: error }, 'admin_credit_grant_failed');
     return reply.status(500).send({
       message: 'Failed to process credit grant',
       success: false,
@@ -208,7 +208,7 @@ export async function deductCreditsHandler(
       });
     }
   } catch (error) {
-    request.log.error('Admin credit deduction error:', error);
+    request.log.error({ err: error }, 'admin_credit_deduction_failed');
     return reply.status(500).send({
       message: 'Failed to process credit deduction',
       success: false,
