@@ -6,9 +6,12 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { UserEntity } from './User';
 
+@Index(['userId', 'createdAt'])
+@Index(['userId', 'status'])
 @Entity('videos')
 export class VideoEntity {
   @PrimaryGeneratedColumn({ type: 'int' })

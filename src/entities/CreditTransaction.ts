@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { UserEntity } from './User';
 import { VideoEntity } from './Video';
@@ -25,6 +26,7 @@ export enum TransactionStatus {
   CANCELLED = 'cancelled',
 }
 
+@Index(['userId', 'createdAt'])
 @Entity('credit_transactions')
 export class CreditTransactionEntity {
   @PrimaryGeneratedColumn({ type: 'int' })
