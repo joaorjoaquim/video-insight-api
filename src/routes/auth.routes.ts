@@ -4,6 +4,7 @@ import {
   signupController,
   oauthRedirectController,
   oauthCallbackController,
+  linkGithubController,
 } from '../controllers/auth.controller';
 import {
   LoginBodySchema,
@@ -77,6 +78,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           code: Type.String({
             description: 'Authorization code from OAuth provider',
           }),
+          state: Type.Optional(Type.String()),
         }),
         response: {
           200: AuthResponseSchema,
@@ -86,5 +88,14 @@ export async function authRoutes(fastify: FastifyInstance) {
       },
     },
     oauthCallbackController
+  );
+
+  // GitHub account link route (JWT protected)
+  fastify.get(
+    '/link/github',
+    {
+      preHandler: [fastify.authenticate],
+    },
+    linkGithubController
   );
 }

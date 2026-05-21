@@ -2,6 +2,7 @@ import { VideoRepository } from '../repositories/video.repository';
 import { UserRepository } from '../repositories/user.repository';
 import { VideoEntity } from '../entities/Video';
 import { CreditTransactionRepository } from '../repositories/credit-transaction.repository';
+import { TransactionType } from '../entities/CreditTransaction';
 import { spendCredits, refundCredits, grantCreditsInternal } from './credit.service';
 import { generateCorrelationId } from '../lib/generate-correlation-id';
 import { buildPipelineContext, failVideo } from '../lib/fail-video';
@@ -29,11 +30,20 @@ export async function createVideo(
   return await VideoRepository.save(video);
 }
 
+function estimateCreditsFromDuration(durationSeconds: number | null | undefined): number {
+  if (!durationSeconds) return 5;
+  if (durationSeconds < 600) return 5;   // < 10 min
+  if (durationSeconds < 1800) return 8;  // 10–30 min
+  return 12;                             // > 30 min
+}
+
 export async function createVideoWithCredits(
   videoData: Partial<VideoEntity>,
   userId: number
 ): Promise<{ success: boolean; video?: VideoEntity; message?: string }> {
-  const estimatedCredits = 5;
+  // Duration is not yet available at submission time (populated during download stage)
+  // so we default to 5 credits. Will be recalculated after transcription completes.
+  const estimatedCredits = estimateCreditsFromDuration(videoData.duration as number | undefined);
   const user = await UserRepository.findOne({ where: { id: userId } });
   if (!user || user.credits < estimatedCredits) {
     return { success: false, message: 'Insufficient credits' };
@@ -529,7 +539,8 @@ async function triggerReferralRewardIfEligible(userId: number): Promise<void> {
       5,
       `Referral reward — ${user.email}`,
       'referral_reward',
-      String(userId)
+      String(userId),
+      TransactionType.REFERRAL_REWARD
     );
 
     await UserRepository.update(referrer.id, {

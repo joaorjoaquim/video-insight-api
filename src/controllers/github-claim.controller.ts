@@ -5,7 +5,6 @@ import { grantCreditsInternal } from '../services/credit.service';
 import { cacheService } from '../config/redis.config';
 
 interface ClaimGitHubBody {
-  githubUsername?: string;
   action: GitHubAction;
   repo?: GitHubRepo;
 }
@@ -17,7 +16,7 @@ export async function claimGitHubCreditsHandler(
   reply: FastifyReply
 ) {
   const userId = (request.user as any)?.userId as number;
-  const { githubUsername, action, repo: repoInput } = request.body as ClaimGitHubBody;
+  const { action, repo: repoInput } = request.body as ClaimGitHubBody;
   const repo: GitHubRepo = repoInput ?? 'web';
 
   if (!['star', 'fork'].includes(action)) {
@@ -52,10 +51,10 @@ export async function claimGitHubCreditsHandler(
     });
   }
 
-  const usernameToCheck = user.githubUsername || githubUsername;
+  const usernameToCheck = user.githubUsername;
   if (!usernameToCheck) {
     return reply.status(400).send({
-      message: 'GitHub username required. Provide it in the request body or connect GitHub via OAuth.',
+      message: 'GitHub account not linked. Go to Wallet and connect your GitHub account first.',
     });
   }
 
@@ -78,11 +77,7 @@ export async function claimGitHubCreditsHandler(
   const creditsToGrant = getCreditsForAction(action);
   const repoLabel = repo === 'web' ? 'video-insight-web' : 'video-insight-api';
 
-  // Store username if not already stored
   const updates: Partial<typeof user> = { [claimFlag]: true };
-  if (!user.githubUsername && githubUsername) {
-    updates.githubUsername = githubUsername;
-  }
 
   await UserRepository.update(userId, updates);
 

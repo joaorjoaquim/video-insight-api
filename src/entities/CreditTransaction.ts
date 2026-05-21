@@ -15,6 +15,7 @@ export enum TransactionType {
   REFUND = 'refund',
   ADMIN_GRANT = 'admin_grant',
   ADMIN_DEDUCT = 'admin_deduct',
+  REFERRAL_REWARD = 'referral_reward',
 }
 
 export enum TransactionStatus {

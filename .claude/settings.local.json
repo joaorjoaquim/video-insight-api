@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(powershell -Command \"\\(Get-Content src/services/video-ai.service.ts -Raw\\) -replace 'console\\\\.log\\\\\\(', 'logger.info\\(' -replace 'console\\\\.error\\\\\\(', 'logger.error\\(' -replace 'console\\\\.warn\\\\\\(', 'logger.warn\\(' | Set-Content src/services/video-ai.service.ts -NoNewline\")",
+      "Bash(node -e ' *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git add *)"
+    ]
+  }
+}

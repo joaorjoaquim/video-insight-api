@@ -70,7 +70,8 @@ export async function grantCreditsInternal(
   amount: number,
   description: string,
   referenceType?: string,
-  referenceId?: string
+  referenceId?: string,
+  type: TransactionType = TransactionType.ADMIN_GRANT
 ): Promise<boolean> {
   const user = await UserRepository.findOne({ where: { id: userId } });
   if (!user) {
@@ -81,7 +82,7 @@ export async function grantCreditsInternal(
   const transaction = CreditTransactionRepository.create({
     userId,
     amount,
-    type: TransactionType.ADMIN_GRANT,
+    type,
     status: TransactionStatus.COMPLETED,
     description,
     referenceType: referenceType || 'system',

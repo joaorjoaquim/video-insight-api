@@ -8,6 +8,7 @@ import {
 } from '../services/user.service';
 import { OAuthService, OAuthProvider } from '../services/oauth.service';
 import { grantCreditsInternal } from '../services/credit.service';
+import { TransactionType } from '../entities/CreditTransaction';
 import { UserRepository } from '../repositories/user.repository';
 
 export async function signupController(
@@ -39,7 +40,9 @@ export async function signupController(
             user.id as number,
             10,
             'Referral signup bonus',
-            'referral_signup'
+            'referral_signup',
+            undefined,
+            TransactionType.REFERRAL_REWARD
           );
           request.log.info(
             { userId: user.id, referredByCode: referralCode },
@@ -130,7 +133,8 @@ export async function oauthCallbackController(
   reply: FastifyReply
 ) {
   const { provider } = request.params as { provider: string };
-  const { code } = request.query as { code: string };
+  const { code, state } = request.query as { code: string; state?: string };
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
   try {
     if (!['google', 'discord', 'github'].includes(provider)) {
@@ -143,6 +147,36 @@ export async function oauthCallbackController(
     }
 
     const userProfile = await OAuthService.handleOAuthCallback(provider as OAuthProvider, code);
+
+    const linkState = state ? OAuthService.decodeLinkState(state) : null;
+    if (linkState && provider === 'github') {
+      try {
+        const existingUser = await UserRepository.findOne({ where: { id: linkState.userId } });
+        if (!existingUser) {
+          return reply.redirect(`${frontendUrl}/auth/callback?error=link_user_not_found`);
+        }
+        // Conflict: a different GitHub account is already linked to this user
+        if (existingUser.githubId && userProfile.githubId && existingUser.githubId !== userProfile.githubId) {
+          return reply.redirect(`${frontendUrl}/wallet?error=github_already_linked`);
+        }
+        // Check no other user already owns this GitHub identity
+        if (userProfile.githubId) {
+          const alreadyOwned = await UserRepository.findOne({ where: { githubId: userProfile.githubId } });
+          if (alreadyOwned && alreadyOwned.id !== existingUser.id) {
+            return reply.redirect(`${frontendUrl}/wallet?error=github_already_owned`);
+          }
+        }
+        await UserRepository.update(existingUser.id, {
+          githubUsername: userProfile.githubUsername || existingUser.githubUsername,
+          githubId: userProfile.githubId || existingUser.githubId,
+        });
+        request.log.info({ userId: existingUser.id }, 'github_account_linked');
+        return reply.redirect(`${frontendUrl}/wallet?github_linked=1`);
+      } catch (linkErr) {
+        request.log.error({ error: linkErr, userId: linkState.userId }, 'github_link_failed');
+        return reply.redirect(`${frontendUrl}/wallet?error=link_failed`);
+      }
+    }
 
     const user = await createOrUpdateOAuthUser(
       provider,
@@ -161,11 +195,20 @@ export async function oauthCallbackController(
       { expiresIn: '15d' }
     );
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     return reply.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
   } catch (error) {
     request.log.error({ error, provider }, 'oauth_callback_error');
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     return reply.redirect(`${frontendUrl}/auth/callback?error=oauth_failed`);
   }
+}
+
+export async function linkGithubController(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const userId = (request.user as any)?.userId as number;
+  if (!userId) return reply.status(401).send({ message: 'Unauthorized' });
+
+  const linkUrl = OAuthService.getLinkUrl('github', userId);
+  return reply.send({ url: linkUrl });
 }

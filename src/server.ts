@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import addFormats from 'ajv-formats';
 import { errorHandler } from './plugins/errorHandler';
 import routes from './routes';
 import {
@@ -28,6 +29,7 @@ export function buildServer() {
     },
     ajv: {
       plugins: [
+        addFormats,
         (ajv) => {
           ajv.addKeyword({
             keyword: 'example',
@@ -47,6 +49,14 @@ export function buildServer() {
     timeWindow: '1 minute',
     redis: process.env.RATE_LIMIT_REDIS_URL ? undefined : cacheService,
     skipOnError: true,
+  });
+
+  app.addHook('onSend', (_request, reply, payload, done) => {
+    const ct = reply.getHeader('content-type') as string | undefined;
+    if (ct && ct.startsWith('application/json') && !ct.includes('charset')) {
+      reply.header('content-type', 'application/json; charset=utf-8');
+    }
+    done(null, payload);
   });
 
   app.register(swagger, {

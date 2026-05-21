@@ -14,8 +14,7 @@ export const SignupBodySchema = Type.Object({
   }),
   referralCode: Type.Optional(
     Type.String({
-      minLength: 8,
-      maxLength: 8,
+      maxLength: 64,
       description: 'Referral code from an existing user',
       example: 'a3f8c21b',
     })

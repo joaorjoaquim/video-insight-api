@@ -42,6 +42,13 @@ export async function creditRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/redeem',
     {
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: '1 hour',
+          keyGenerator: (request) => `redeem:${(request.user as any)?.userId ?? request.ip}`,
+        },
+      },
       schema: {
         body: Type.Object({
           code: Type.String({ minLength: 1, maxLength: 50 }),
@@ -70,7 +77,6 @@ export async function creditRoutes(fastify: FastifyInstance) {
         body: Type.Object({
           action: Type.Union([Type.Literal('star'), Type.Literal('fork')]),
           repo: Type.Optional(Type.Union([Type.Literal('web'), Type.Literal('api')])),
-          githubUsername: Type.Optional(Type.String({ minLength: 1, maxLength: 39 })),
         }),
         response: {
           200: Type.Object({

@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import { UserEntity } from '../entities/User';
 import { UserRepository } from '../repositories/user.repository';
 
@@ -58,6 +59,52 @@ export class OAuthService {
     });
 
     return `${baseUrl}?${params.toString()}`;
+  }
+
+  static getLinkUrl(provider: OAuthProvider, userId: number): string {
+    const baseUrl = this.getProviderBaseUrl(provider);
+    const clientId = this.getClientId(provider);
+    const scope = this.getScope(provider);
+    const redirectUri = `${this.REDIRECT_BASE_URL}/${provider}`;
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new Error('JWT_SECRET env var is required');
+    const iat = Math.floor(Date.now() / 1000);
+    const sigPayload = `${userId}:link:${iat}`;
+    const sig = createHmac('sha256', secret).update(sigPayload).digest('hex');
+
+    const statePayload = Buffer.from(
+      JSON.stringify({ userId, mode: 'link', iat, sig })
+    ).toString('base64url');
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scope,
+      state: statePayload,
+    });
+
+    return `${baseUrl}?${params.toString()}`;
+  }
+
+  static decodeLinkState(state: string): { userId: number; mode: string } | null {
+    try {
+      const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf-8'));
+      if (!decoded.userId || decoded.mode !== 'link') return null;
+      if (typeof decoded.userId !== 'number' || typeof decoded.iat !== 'number') return null;
+      if (Math.floor(Date.now() / 1000) - decoded.iat > 600) return null;
+
+      const secret = process.env.JWT_SECRET;
+      if (!secret) throw new Error('JWT_SECRET env var is required');
+      const sigPayload = `${decoded.userId}:link:${decoded.iat}`;
+      const expectedSig = createHmac('sha256', secret).update(sigPayload).digest('hex');
+      if (decoded.sig !== expectedSig) return null;
+
+      return decoded;
+    } catch {
+      return null;
+    }
   }
 
   static async handleOAuthCallback(
