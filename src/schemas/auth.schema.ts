@@ -47,6 +47,11 @@ export const UserResponseSchema = Type.Object({
   providerId: Type.Optional(
     Type.String({ description: 'ID do usuário no provedor OAuth' })
   ),
+  githubUsername: Type.Union([Type.String(), Type.Null()], { description: 'Linked GitHub username, null if not linked' }),
+  githubStarClaimedWeb: Type.Boolean({ description: 'Star claimed for video-insight-web repo' }),
+  githubForkClaimedWeb: Type.Boolean({ description: 'Fork claimed for video-insight-web repo' }),
+  githubStarClaimedApi: Type.Boolean({ description: 'Star claimed for video-insight-api repo' }),
+  githubForkClaimedApi: Type.Boolean({ description: 'Fork claimed for video-insight-api repo' }),
   createdAt: Type.String({
     format: 'date-time',
     description: 'Data de criação',
