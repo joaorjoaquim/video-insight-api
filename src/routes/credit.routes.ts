@@ -25,7 +25,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
       schema: {
         querystring: Type.Object({
           limit: Type.Optional(Type.Number({ description: 'Number of transactions per page', example: 20 })),
-          cursor: Type.Optional(Type.String({ description: 'Cursor for pagination (ISO date of last returned item)', example: '2026-01-15T10:30:00.000Z' })),
+          cursor: Type.Optional(Type.String({ description: 'Pagination cursor from previous response (createdAt|id format)', example: '2026-01-15T10:30:00.000Z|42' })),
         }),
         response: {
           200: GetCreditsResponseSchema,

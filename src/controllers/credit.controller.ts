@@ -40,18 +40,11 @@ export async function getUserCreditsHandler(
       MAX_PAGINATION_LIMIT
     );
 
-    if (cursor) {
-      const cursorDate = new Date(cursor);
-      if (isNaN(cursorDate.getTime())) {
-        return reply.status(400).send({ message: 'Invalid cursor format' });
-      }
-    }
-
     const credits = await getUserCredits(userId);
     const { transactions, nextCursor } = await getUserTransactionHistory(
       userId,
       sanitizedLimit,
-      cursor || undefined
+      cursor
     );
 
     return reply.send({
@@ -64,7 +57,7 @@ export async function getUserCreditsHandler(
     });
   } catch (error) {
     // Log error for monitoring
-    request.log.error('Failed to get user credits:', error);
+    request.log.error({ err: error }, 'get_user_credits_failed');
     return reply.status(500).send({
       message: 'Failed to retrieve credit information',
     });

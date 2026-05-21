@@ -105,13 +105,28 @@ export async function getUserTransactionHistory(
   limit?: number,
   cursor?: string
 ): Promise<{ transactions: TransactionWithVideoInfo[]; nextCursor: string | null }> {
+  let cursorDate: Date | null = null;
+  let cursorId: number | null = null;
+
+  if (cursor) {
+    const parts = cursor.split('|');
+    if (parts.length === 2) {
+      cursorDate = new Date(parts[0]);
+      cursorId = parseInt(parts[1], 10);
+    }
+  }
+
   const queryBuilder = CreditTransactionRepository.createQueryBuilder('transaction')
     .leftJoinAndSelect('transaction.video', 'video')
     .where('transaction.userId = :userId', { userId })
-    .orderBy('transaction.createdAt', 'DESC');
+    .orderBy('transaction.createdAt', 'DESC')
+    .addOrderBy('transaction.id', 'DESC');
 
-  if (cursor) {
-    queryBuilder.andWhere('transaction.createdAt < :cursor', { cursor: new Date(cursor) });
+  if (cursorDate && cursorId !== null && !isNaN(cursorId)) {
+    queryBuilder.andWhere(
+      '(transaction.createdAt < :cursorDate OR (transaction.createdAt = :cursorDate AND transaction.id < :cursorId))',
+      { cursorDate, cursorId }
+    );
   }
 
   if (limit) {
@@ -121,7 +136,7 @@ export async function getUserTransactionHistory(
   const transactions = await queryBuilder.getMany();
 
   const nextCursor = transactions.length === limit
-    ? transactions[transactions.length - 1].createdAt.toISOString()
+    ? `${transactions[transactions.length - 1].createdAt.toISOString()}|${transactions[transactions.length - 1].id}`
     : null;
 
   const enhancedTransactions: TransactionWithVideoInfo[] = transactions.map(
