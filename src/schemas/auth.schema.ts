@@ -38,8 +38,9 @@ export const LoginBodySchema = Type.Object({
 // User Response Schema
 export const UserResponseSchema = Type.Object({
   id: Type.Number({ description: 'ID do usuário' }),
-  email: Type.String({ description: 'Email do usuário' }),
   name: Type.String({ description: 'Nome do usuário' }),
+  email: Type.String({ description: 'Email do usuário' }),
+  credits: Type.Number({ description: 'User credit balance', example: 100 }),
   avatarUrl: Type.Optional(Type.String({ description: 'URL do avatar' })),
   provider: Type.Optional(
     Type.String({ description: 'Provedor OAuth (google, discord)' })
@@ -47,11 +48,11 @@ export const UserResponseSchema = Type.Object({
   providerId: Type.Optional(
     Type.String({ description: 'ID do usuário no provedor OAuth' })
   ),
-  githubUsername: Type.Union([Type.String(), Type.Null()], { description: 'Linked GitHub username, null if not linked' }),
-  githubStarClaimedWeb: Type.Boolean({ description: 'Star claimed for video-insight-web repo' }),
-  githubForkClaimedWeb: Type.Boolean({ description: 'Fork claimed for video-insight-web repo' }),
-  githubStarClaimedApi: Type.Boolean({ description: 'Star claimed for video-insight-api repo' }),
-  githubForkClaimedApi: Type.Boolean({ description: 'Fork claimed for video-insight-api repo' }),
+  githubUsername: Type.Union([Type.String(), Type.Null()], { description: 'Linked GitHub username, null if not linked', example: 'octocat' }),
+  githubStarClaimedWeb: Type.Boolean({ description: 'Star claimed for video-insight-web repo', example: false }),
+  githubForkClaimedWeb: Type.Boolean({ description: 'Fork claimed for video-insight-web repo', example: false }),
+  githubStarClaimedApi: Type.Boolean({ description: 'Star claimed for video-insight-api repo', example: false }),
+  githubForkClaimedApi: Type.Boolean({ description: 'Fork claimed for video-insight-api repo', example: false }),
   createdAt: Type.String({
     format: 'date-time',
     description: 'Data de criação',
