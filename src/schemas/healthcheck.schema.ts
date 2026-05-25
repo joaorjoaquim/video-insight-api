@@ -1,5 +1,10 @@
 import { Type } from '@sinclair/typebox';
 
 export const HealthcheckResponseSchema = Type.Object({
-    message: Type.String({ description: 'Status da API', example: 'API is up and running' }),
+  status: Type.String({ description: 'ok | degraded | down', example: 'ok' }),
+  db: Type.Object({
+    initialized: Type.Boolean(),
+    latency_ms: Type.Union([Type.Number(), Type.Null()]),
+  }),
+  message: Type.Optional(Type.String()),
 });

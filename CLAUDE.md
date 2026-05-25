@@ -250,13 +250,37 @@ WEEKLY_CREDIT_FLOOR=100
 **Issue:** `POST /credits/claim/github` TypeBox schema included `githubUsername: Type.Optional(Type.String(...))` but the controller never reads it from the request body (it uses `user.githubUsername` from the JWT session exclusively, per the security fix in Task 7). The extra field created a misleading API contract implying username overrides were accepted.  
 **Fix:** Removed the dead `githubUsername` field from the route schema. Request body now only contains `action` and optional `repo`.
 
+### ✅ Fixed: GitHub fields stripped from profile response by fast-json-stringify
+**Files:** `src/schemas/user.schema.ts`, `src/schemas/auth.schema.ts`  
+**Issue:** `UserResponseSchema` in both files did not include the GitHub fields (`githubUsername`, `githubStarClaimedWeb`, etc.). Fastify's response serializer (fast-json-stringify) strips fields absent from the TypeBox schema, so clients never received GitHub link status even though the data existed in the DB.  
+**Fix:** Added all 5 GitHub fields to both `UserResponseSchema` definitions. Also added missing `credits` field to `auth.schema.ts` (it was stripped from `/auth/signup` and `/auth/login` responses). Commit: `ab3a9c4` + `246271c`.
+
+### ✅ Fixed: No indices on Video and CreditTransaction tables — full table scans
+**Files:** `src/entities/Video.ts`, `src/entities/CreditTransaction.ts`  
+**Issue:** Every `WHERE userId = ?` query on `videos` and `credit_transactions` performed a full table scan. No `@Index` decorators existed on either entity.  
+**Fix:** Added composite indices via class-level `@Index` decorators. `VideoEntity`: `@Index(['userId', 'createdAt'])` and `@Index(['userId', 'status'])`. `CreditTransactionEntity`: `@Index(['userId', 'createdAt'])`. With `synchronize: true` in `db.config.ts`, indices are created automatically on next server start. Commit: `ef56dcd`.
+
+### ✅ Fixed: GET /credits uses offset pagination — degrades with volume
+**Files:** `src/services/credit.service.ts`, `src/controllers/credit.controller.ts`, `src/schemas/credit.schema.ts`, `src/routes/credit.routes.ts`  
+**Issue:** `LIMIT x OFFSET y` reads and discards `offset` rows before returning results — O(n) cost that degrades as transaction history grows. Also ran a separate `COUNT(*)` query on every request.  
+**Fix:** Replaced offset with compound cursor `"createdAt_ISO|id"`. Query uses `WHERE (createdAt < X) OR (createdAt = X AND id < Y)` to handle timestamp collisions. Response now returns `pagination: { nextCursor: string | null, limit: number }` instead of `{ total, limit, offset }`. Cursor is validated (ISO date part + integer id) with graceful ignore on malformed input. Commits: `3f1d8db`, `c1e81eb`, `b853f3b`.
+
+### ✅ Fixed: `onReady` hook timeout when DB is down on cold start
+**File:** `src/server.ts`  
+**Issue:** `onReady` hook called `initializeConnections()` which retried DB connection up to 5× with 5s delay (25s total). Fastify's default `pluginTimeout` is 10s — DB down → retries exceed timeout → `FST_ERR_HOOK_TIMEOUT`. On Vercel (serverless), this blocked the cold start entirely.  
+**Fix:** Moved DB initialization out of `onReady` into a lazy `preHandler` hook. First request triggers `initializeConnections()`; concurrent requests await the same promise (no duplicate init). If DB is unreachable, returns `503 DB_UNAVAILABLE` instead of crashing. Also increased `pluginTimeout` to 60s as a safety net. Reduced `MAX_RETRIES` to 3 and delay to 2s (6s max) — faster fail for Neon which typically wakes in ~1–2s.
+
+### ✅ Fixed: GET /credits transaction history query loads full video blobs — 82s p50
+**File:** `src/services/credit.service.ts`  
+**Issue:** `leftJoinAndSelect('transaction.video', 'video')` loaded all video columns including `transcription`, `dashboard`, `mindMap`, `summary`, `insights` — multi-KB text blobs for every row. With even a handful of transactions, this pulled megabytes per request. Observed avg 82s, total 164s for 2 calls in Neon query stats.  
+**Fix:** Replaced `leftJoinAndSelect` with `leftJoin` + `addSelect(['video.id', 'video.title', 'video.duration', 'video.status'])`. Only 4 columns loaded instead of the full entity.
+
 ---
 
 ## Known Gaps / Future Work
 
-- **GitHub OAuth button missing in frontend** — API supports `GET /auth/oauth/github` but AuthDialog in the web app has no GitHub button. Users can only link GitHub via the claim form (manual username entry).
-- **Frontend only claims web repo** — wallet UI has no way to claim credits for the API repo. API supports `repo: "api"` but frontend always omits `repo` (defaults to `"web"`).
-- **Payment integration** — wallet "Buy Credits" dialog is UI-only; no payment processor is wired (Stripe, etc.).
+- **Payment integration** — wallet "Buy Credits" button links to earn-credits section; no payment processor wired (Stripe, etc.).
 - **Admin UI** — promo code management is API-only (no dashboard).
 - **No WebSocket / real-time push** — video status updates require client polling (`GET /video/:id/status` every 10s).
 - **Low test coverage** — only `__tests__/video.test.ts` exists. Auth, credits, promo, referral, and GitHub claim flows have zero test coverage.
+- **GET /video has no pagination** — returns all user videos in one query. Acceptable for typical usage but should add cursor pagination if video counts grow significantly.

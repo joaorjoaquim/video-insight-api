@@ -5,7 +5,7 @@ import logger from './logger';
 const isTestEnv =
   process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'homolog';
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 3;
 const baseConfig: Partial<DataSourceOptions> = {
   type: 'postgres',
   entities: [__dirname + '/../entities/*.{js,ts}'],
@@ -113,7 +113,7 @@ async function connectWithRetry(
   dataSource: DataSource,
   name: string,
   maxRetries = MAX_RETRIES,
-  delay = 5000
+  delay = 2000
 ) {
   let retries = 0;
 

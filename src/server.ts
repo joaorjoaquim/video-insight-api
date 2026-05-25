@@ -17,6 +17,7 @@ export function buildServer() {
   const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
   
   const app = Fastify({
+    pluginTimeout: 60000,
     genReqId: (req) =>
       (req.headers['x-correlation-id'] as string) ||
       `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
@@ -152,9 +153,32 @@ export function buildServer() {
     transformStaticCSP: (header) => header,
   });
 
-  app.addHook('onReady', async () => {
-    await initializeConnections();
-    app.log.info('Database and cache services connected via onReady hook');
+  let dbInitialized = false;
+  let dbInitializing: Promise<void> | null = null;
+
+  app.addHook('preHandler', async (_request: any, reply) => {
+    if (_request.url === '/healthcheck' || _request.url?.startsWith('/healthcheck?')) return;
+    if (dbInitialized) return;
+
+    if (!dbInitializing) {
+      dbInitializing = initializeConnections()
+        .then(() => {
+          dbInitialized = true;
+          dbInitializing = null;
+          app.log.info('db_connected');
+        })
+        .catch((err) => {
+          dbInitializing = null;
+          app.log.error({ err }, 'db_init_failed');
+          throw err;
+        });
+    }
+
+    try {
+      await dbInitializing;
+    } catch {
+      reply.status(503).send({ error: 'Service temporarily unavailable', code: 'DB_UNAVAILABLE' });
+    }
   });
 
   app.setErrorHandler(errorHandler);

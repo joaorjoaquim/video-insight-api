@@ -117,7 +117,8 @@ export async function getUserTransactionHistory(
   }
 
   const queryBuilder = CreditTransactionRepository.createQueryBuilder('transaction')
-    .leftJoinAndSelect('transaction.video', 'video')
+    .leftJoin('transaction.video', 'video')
+    .addSelect(['video.id', 'video.title', 'video.duration', 'video.status'])
     .where('transaction.userId = :userId', { userId })
     .orderBy('transaction.createdAt', 'DESC')
     .addOrderBy('transaction.id', 'DESC');

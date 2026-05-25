@@ -1,11 +1,30 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { connectionSource } from '../config/db.config';
+import { WriteDataSource } from '../config/db.config';
 
-export async function healthcheckController(request: FastifyRequest, reply: FastifyReply) {
+export async function healthcheckController(_request: FastifyRequest, reply: FastifyReply) {
+  const initialized = WriteDataSource.isInitialized;
+  let latency_ms: number | null = null;
+  let dbError: string | undefined;
+
+  if (initialized) {
+    const start = Date.now();
     try {
-        await connectionSource.query('SELECT 1');
-        reply.status(200).send({ message: 'API is up and running' });
-    } catch (error) {
-        reply.status(500).send({ message: 'API is down' });
+      await WriteDataSource.query('SELECT 1');
+      latency_ms = Date.now() - start;
+    } catch (err: any) {
+      dbError = err?.message;
     }
+  }
+
+  const status = !initialized || dbError
+    ? 'down'
+    : latency_ms! > 2000
+      ? 'degraded'
+      : 'ok';
+
+  reply.status(status === 'down' ? 503 : 200).send({
+    status,
+    db: { initialized, latency_ms },
+    ...(dbError ? { message: dbError } : {}),
+  });
 }

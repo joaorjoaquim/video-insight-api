@@ -5,6 +5,6 @@ export const healthcheckDocSchema = {
     tags: ['Health'],
     response: {
         200: HealthcheckResponseSchema,
-        500: HealthcheckResponseSchema,
+        503: HealthcheckResponseSchema,
     }
 }
