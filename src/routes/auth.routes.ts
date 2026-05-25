@@ -6,10 +6,12 @@ import {
   oauthCallbackController,
   linkGithubController,
 } from '../controllers/auth.controller';
+import { refreshController, logoutController } from '../controllers/refresh.controller';
 import {
   LoginBodySchema,
   SignupBodySchema,
   AuthResponseSchema,
+  RefreshResponseSchema,
   ErrorResponseSchema,
   OAuthProviderSchema,
 } from '../schemas/auth.schema';
@@ -97,5 +99,33 @@ export async function authRoutes(fastify: FastifyInstance) {
       preHandler: [fastify.authenticate],
     },
     linkGithubController
+  );
+
+  // Refresh access token using HttpOnly refresh_token cookie
+  fastify.post(
+    '/refresh',
+    {
+      schema: {
+        response: {
+          200: RefreshResponseSchema,
+          401: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+    },
+    refreshController
+  );
+
+  // Revoke refresh token and clear cookie
+  fastify.post(
+    '/logout',
+    {
+      schema: {
+        response: {
+          204: Type.Null(),
+        },
+      },
+    },
+    logoutController
   );
 }

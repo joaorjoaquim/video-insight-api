@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
@@ -42,7 +43,13 @@ export function buildServer() {
     },
   });
 
-  app.register(cors, {});
+  const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+  app.register(cors, {
+    origin: allowedOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  });
+  app.register(cookie);
   app.register(helmet, { contentSecurityPolicy: false });
 
   app.register(rateLimit, {

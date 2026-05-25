@@ -66,11 +66,17 @@ export const UserResponseSchema = Type.Object({
 // Auth Response Schema
 export const AuthResponseSchema = Type.Object({
   user: UserResponseSchema,
-  token: Type.String({
-    description: 'Token JWT gerado',
-    example: 'jwt_token_here',
+  accessToken: Type.String({
+    description: 'Short-lived JWT access token (15 min)',
+    example: 'eyJhbGci...',
   }),
 });
+
+// Refresh Response Schema (same shape, returned by POST /auth/refresh)
+export const RefreshResponseSchema = AuthResponseSchema;
+
+// Logout Body Schema (no body required — token read from HttpOnly cookie)
+export const LogoutResponseSchema = Type.Null();
 
 // OAuth Provider Schema
 export const OAuthProviderSchema = Type.Union([

@@ -10,6 +10,10 @@ import { OAuthService, OAuthProvider } from '../services/oauth.service';
 import { grantCreditsInternal } from '../services/credit.service';
 import { TransactionType } from '../entities/CreditTransaction';
 import { UserRepository } from '../repositories/user.repository';
+import {
+  issueRefreshToken,
+  setRefreshCookie,
+} from '../services/auth.service';
 
 export async function signupController(
   request: FastifyRequest,
@@ -30,7 +34,6 @@ export async function signupController(
     const name = email.split('@')[0];
     const user = await createUser({ email, password, name });
 
-    // Apply referral bonus silently — never fail signup over this
     if (referralCode) {
       try {
         const referrer = await findUserByReferralCode(referralCode);
@@ -54,12 +57,15 @@ export async function signupController(
       }
     }
 
-    const token = await reply.jwtSign(
+    const accessToken = await reply.jwtSign(
       { userId: user.id, email: user.email },
-      { expiresIn: '15d' }
+      { expiresIn: '15m' }
     );
 
-    return reply.status(201).send({ user, token });
+    const refreshToken = await issueRefreshToken(user.id as number);
+    setRefreshCookie(reply, refreshToken);
+
+    return reply.status(201).send({ user, accessToken });
   } catch (error) {
     request.log.error(error);
     return reply.status(500).send({ message: 'Internal server error' });
@@ -82,7 +88,6 @@ export async function loginController(
       return reply.status(401).send({ message: 'Invalid email or password' });
     }
 
-    // Check if user has password (OAuth users might not have passwords)
     if (!user.password) {
       return reply.status(401).send({ message: 'Please use OAuth to login' });
     }
@@ -92,17 +97,16 @@ export async function loginController(
       return reply.status(401).send({ message: 'Invalid email or password' });
     }
 
-    const token = await reply.jwtSign(
+    const accessToken = await reply.jwtSign(
       { userId: user.id, email: user.email },
-      { expiresIn: '15d' }
+      { expiresIn: '15m' }
     );
 
-    const { password: _, ...userWithoutPassword } = user;
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(reply, refreshToken);
 
-    return reply.send({
-      user: userWithoutPassword,
-      token,
-    });
+    const { password: _, ...userWithoutPassword } = user;
+    return reply.send({ user: userWithoutPassword, accessToken });
   } catch (error) {
     request.log.error(error);
     return reply.status(500).send({ message: 'Internal server error' });
@@ -155,11 +159,9 @@ export async function oauthCallbackController(
         if (!existingUser) {
           return reply.redirect(`${frontendUrl}/auth/callback?error=link_user_not_found`);
         }
-        // Conflict: a different GitHub account is already linked to this user
         if (existingUser.githubId && userProfile.githubId && existingUser.githubId !== userProfile.githubId) {
           return reply.redirect(`${frontendUrl}/wallet?error=github_already_linked`);
         }
-        // Check no other user already owns this GitHub identity
         if (userProfile.githubId) {
           const alreadyOwned = await UserRepository.findOne({ where: { githubId: userProfile.githubId } });
           if (alreadyOwned && alreadyOwned.id !== existingUser.id) {
@@ -190,12 +192,17 @@ export async function oauthCallbackController(
 
     request.log.info({ userId: user.id, provider }, 'oauth_callback_success');
 
-    const token = await reply.jwtSign(
+    const accessToken = await reply.jwtSign(
       { userId: user.id, email: user.email },
-      { expiresIn: '15d' }
+      { expiresIn: '15m' }
     );
 
-    return reply.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${provider}`);
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(reply, refreshToken);
+
+    return reply.redirect(
+      `${frontendUrl}/auth/callback?access_token=${accessToken}&provider=${provider}`
+    );
   } catch (error) {
     request.log.error({ error, provider }, 'oauth_callback_error');
     return reply.redirect(`${frontendUrl}/auth/callback?error=oauth_failed`);
