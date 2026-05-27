@@ -1,6 +1,6 @@
 import type { VideoPipelineContext } from '../../lib/video-types';
 import { logVideoEvent } from '../../lib/log-video-event';
-import type { TranscriptResult } from './types';
+import type { TranscriptResult, TranscriptSegment } from './types';
 
 function extractYouTubeVideoId(url: string): string | null {
   try {
@@ -9,6 +9,9 @@ function extractYouTubeVideoId(url: string): string | null {
       return parsed.pathname.slice(1).split('/')[0] || null;
     }
     if (parsed.hostname.includes('youtube.com')) {
+      // Handle /shorts/ URLs
+      const shortsMatch = parsed.pathname.match(/\/shorts\/([^/?#]+)/);
+      if (shortsMatch) return shortsMatch[1];
       return parsed.searchParams.get('v');
     }
   } catch {
@@ -19,6 +22,12 @@ function extractYouTubeVideoId(url: string): string | null {
 
 export function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/i.test(url);
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 export async function youtubeNativeTranscript(
@@ -42,12 +51,18 @@ export async function youtubeNativeTranscript(
 
   try {
     const { YoutubeTranscript } = await import('youtube-transcript');
-    const segments = await YoutubeTranscript.fetchTranscript(videoId);
-    const text = segments.map((s) => s.text).join(' ').trim();
+    const raw = await YoutubeTranscript.fetchTranscript(videoId);
 
-    if (!text) {
-      return null;
-    }
+    const text = raw.map((s) => s.text).join(' ').trim();
+    if (!text) return null;
+
+    // Preserve real timestamps — offset is in seconds
+    const segments: TranscriptSegment[] = raw
+      .filter((s) => s.text?.trim())
+      .map((s) => ({
+        time: formatTime(s.offset),
+        text: s.text.trim(),
+      }));
 
     await logVideoEvent({
       ctx,
@@ -56,11 +71,12 @@ export async function youtubeNativeTranscript(
       msg: 'youtube_native_ok',
       provider: 'youtube_native',
       durationMs: Date.now() - start,
-      outputSummary: { textLength: text.length, segmentCount: segments.length },
+      outputSummary: { textLength: text.length, segmentCount: raw.length },
     });
 
     return {
       text,
+      segments,
       provider: 'youtube_native',
       externalVideoId: videoId,
       title: ctx.videoTitle ?? undefined,

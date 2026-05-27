@@ -179,7 +179,11 @@ export async function startVideoDownload(videoId: number): Promise<void> {
             processingProvider: fallback.provider,
             status: 'transcribing',
           });
-          await completeWithTranscript(videoId, ctx, fallback.text, fallback.provider);
+          await completeWithTranscript(
+            videoId, ctx, fallback.text, fallback.provider,
+            fallback.segments,
+            fallback.duration ?? (typeof video.duration === 'number' ? video.duration : undefined)
+          );
           return;
         }
 
@@ -218,7 +222,11 @@ export async function startVideoDownload(videoId: number): Promise<void> {
             processingProvider: fallback.provider,
             status: 'transcribing',
           });
-          await completeWithTranscript(videoId, ctx, fallback.text, fallback.provider);
+          await completeWithTranscript(
+            videoId, ctx, fallback.text, fallback.provider,
+            fallback.segments,
+            typeof video.duration === 'number' ? video.duration : undefined
+          );
           return;
         }
         await failVideo(ctx, {
@@ -259,7 +267,11 @@ export async function startTranscription(videoId: number): Promise<void> {
           return;
         }
         if (fallback && 'text' in fallback) {
-          await completeWithTranscript(videoId, ctx, fallback.text, fallback.provider);
+          await completeWithTranscript(
+            videoId, ctx, fallback.text, fallback.provider,
+            fallback.segments,
+            typeof video.duration === 'number' ? video.duration : undefined
+          );
           return;
         }
         await failVideo(ctx, {
@@ -286,7 +298,11 @@ export async function startTranscription(videoId: number): Promise<void> {
         return;
       }
       if (fallback && 'text' in fallback) {
-        await completeWithTranscript(videoId, ctx, fallback.text, fallback.provider);
+        await completeWithTranscript(
+          videoId, ctx, fallback.text, fallback.provider,
+          fallback.segments,
+          typeof video.duration === 'number' ? video.duration : undefined
+        );
         return;
       }
       await failVideo(ctx, {
@@ -321,7 +337,11 @@ export async function checkTranscriptionStatus(
         return { status: 'transcribing' };
       }
       if (jobResult && 'text' in jobResult) {
-        return completeWithTranscript(videoId, ctx, jobResult.text, jobResult.provider);
+        return completeWithTranscript(
+          videoId, ctx, jobResult.text, jobResult.provider,
+          jobResult.segments,
+          typeof video.duration === 'number' ? video.duration : undefined
+        );
       }
       await failTranscriptExhausted(ctx);
       return { status: 'failed' };
@@ -339,17 +359,20 @@ export async function checkTranscriptionStatus(
     const transcript = mapVdcStatusToTranscript(statusData);
     if (transcript?.text) {
       return completeWithTranscript(
-        videoId,
-        ctx,
-        transcript.text,
-        'videodowncut'
+        videoId, ctx, transcript.text, 'videodowncut',
+        transcript.segments,
+        typeof video.duration === 'number' ? video.duration : undefined
       );
     }
 
     if (statusData.success && statusData.data?.status === 'failed') {
       const fallback = await fetchTranscriptWithFallback(ctx);
       if (fallback && 'text' in fallback) {
-        return completeWithTranscript(videoId, ctx, fallback.text, fallback.provider);
+        return completeWithTranscript(
+          videoId, ctx, fallback.text, fallback.provider,
+          fallback.segments,
+          typeof video.duration === 'number' ? video.duration : undefined
+        );
       }
       if (fallback && 'pending' in fallback) {
         await updateVideo(videoId, {
@@ -374,9 +397,13 @@ async function completeWithTranscript(
   videoId: number,
   ctx: VideoPipelineContext,
   transcription: string,
-  provider: string
+  provider: string,
+  segments?: Array<{ time: string; text: string }>,
+  durationSeconds?: number
 ): Promise<{ status: string; dashboard?: unknown }> {
-  const fullTranscript = formatRawTranscription(transcription);
+  const fullTranscript = segments?.length
+    ? segments
+    : formatRawTranscription(transcription, durationSeconds);
   let aiDashboard: Record<string, unknown> = {};
   let tokensUsed = 0;
   let insightsStatus: 'complete' | 'degraded' = 'complete';

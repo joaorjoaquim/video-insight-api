@@ -1,6 +1,12 @@
 import type { VideoPipelineContext } from '../../lib/video-types';
 import { logVideoEvent } from '../../lib/log-video-event';
-import type { TranscriptResult } from './types';
+import type { TranscriptResult, TranscriptSegment } from './types';
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 const VDC_BASE = 'https://api.videodowncut.com/api';
 
@@ -26,6 +32,13 @@ export interface TranscriptionResponse {
   };
 }
 
+interface WhisperSegment {
+  id?: number;
+  start?: number;
+  end?: number;
+  text?: string;
+}
+
 export interface TranscriptionStatusResponse {
   success: boolean;
   data?: {
@@ -33,7 +46,7 @@ export interface TranscriptionStatusResponse {
     videoId: string;
     status: string;
     text?: string;
-    segments?: unknown[];
+    segments?: WhisperSegment[];
   };
 }
 
@@ -214,8 +227,19 @@ export function mapVdcStatusToTranscript(
   data: TranscriptionStatusResponse
 ): TranscriptResult | null {
   if (data.success && data.data?.status === 'completed' && data.data.text) {
+    const rawSegments = data.data.segments;
+    const segments: TranscriptSegment[] | undefined = rawSegments?.length
+      ? rawSegments
+          .filter((s) => s.text?.trim() && s.start !== undefined)
+          .map((s) => ({
+            time: formatTime(s.start!),
+            text: s.text!.trim(),
+          }))
+      : undefined;
+
     return {
       text: data.data.text,
+      segments,
       provider: 'videodowncut',
       transcriptionId: data.data.transcriptionId,
       externalVideoId: data.data.videoId,

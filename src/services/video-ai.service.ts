@@ -763,29 +763,27 @@ function validateAICoverage(originalText: string, aiDashboard: any): number {
   return coverage;
 }
 
-// Helper function to format raw transcription into time-based segments
+// Fallback transcript formatter — used only when providers don't return real timestamps.
+// Distributes sentences evenly across the known video duration (or estimates ~4s/sentence).
 export function formatRawTranscription(
-  rawText: string
+  rawText: string,
+  videoDurationSeconds?: number
 ): Array<{ time: string; text: string }> {
   const sentences = rawText.split(/[.!?]+/).filter((s) => s.trim().length > 0);
-  const formattedTranscript: Array<{ time: string; text: string }> = [];
+  if (!sentences.length) return [];
 
-  // Calculate time intervals based on total length
-  const totalSentences = sentences.length;
-  const timeInterval = Math.max(30, Math.floor(totalSentences / 20)); // At least 30 seconds
+  const totalDuration = videoDurationSeconds ?? sentences.length * 4;
+  const timePerSentence = totalDuration / sentences.length;
 
-  sentences.forEach((sentence, index) => {
-    const minutes = Math.floor((index * timeInterval) / 60);
-    const seconds = (index * timeInterval) % 60;
-    const time = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-    formattedTranscript.push({
-      time,
+  return sentences.map((sentence, index) => {
+    const sec = index * timePerSentence;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return {
+      time: `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`,
       text: sentence.trim() + '.',
-    });
+    };
   });
-
-  return formattedTranscript;
 }
 
 // Helper function to detect language from text

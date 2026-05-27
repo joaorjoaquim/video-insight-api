@@ -1,29 +1,49 @@
 import type { VideoPipelineContext } from '../../lib/video-types';
 import { logVideoEvent } from '../../lib/log-video-event';
-import type { TranscriptResult } from './types';
+import type { TranscriptResult, TranscriptSegment } from './types';
 
 const SUPADATA_BASE = 'https://api.supadata.ai/v1';
 
 type SupadataMode = 'native' | 'auto' | 'generate';
 
+interface SupadataSegment {
+  text: string;
+  offset?: number;   // milliseconds
+  duration?: number; // milliseconds
+}
+
 interface SupadataTranscriptResponse {
-  content?: string | Array<{ text: string; offset?: number; duration?: number }>;
+  content?: string | SupadataSegment[];
   lang?: string;
   jobId?: string;
 }
 
 interface SupadataJobResponse {
   status: string;
-  content?: string | Array<{ text: string }>;
+  content?: string | SupadataSegment[];
   error?: string;
 }
 
-function flattenContent(
-  content: SupadataTranscriptResponse['content']
-): string {
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function flattenContent(content: SupadataTranscriptResponse['content']): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
   return content.map((c) => c.text).join(' ');
+}
+
+function extractSegments(content: SupadataTranscriptResponse['content']): TranscriptSegment[] | undefined {
+  if (!content || typeof content === 'string') return undefined;
+  const withOffset = content.filter((c) => c.offset !== undefined);
+  if (!withOffset.length) return undefined;
+  return withOffset.map((c) => ({
+    time: formatTime((c.offset ?? 0) / 1000),
+    text: c.text.trim(),
+  }));
 }
 
 export async function supadataFetchTranscript(
@@ -59,7 +79,12 @@ export async function supadataFetchTranscript(
     if (data.status === 'completed' && data.content) {
       const text = flattenContent(data.content);
       if (text) {
-        return { text, provider: 'supadata', supadataJobId: jobId };
+        return {
+          text,
+          segments: extractSegments(data.content),
+          provider: 'supadata',
+          supadataJobId: jobId,
+        };
       }
     }
     if (data.status === 'failed') {
@@ -135,5 +160,9 @@ export async function supadataFetchTranscript(
     outputSummary: { textLength: text.length, mode },
   });
 
-  return { text, provider: 'supadata' };
+  return {
+    text,
+    segments: extractSegments(data.content),
+    provider: 'supadata',
+  };
 }

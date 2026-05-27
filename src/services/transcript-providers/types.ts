@@ -1,8 +1,14 @@
 import type { ProcessingProvider } from '../../lib/video-types';
 
+export interface TranscriptSegment {
+  time: string;
+  text: string;
+}
+
 export interface TranscriptResult {
   text: string;
   provider: ProcessingProvider;
+  segments?: TranscriptSegment[];
   title?: string;
   duration?: number;
   thumbnail?: string;
