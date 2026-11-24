@@ -35,3 +35,11 @@ swagger-output/
 output.md
 promptInicial.md
 generate_prompt.py
+
+# Local-only: workstation and tooling files, never in a public repo
+.claude/settings.local.json
+.playwright-mcp/
+.vercel
+/local/
+.env.*
+!.env.example
