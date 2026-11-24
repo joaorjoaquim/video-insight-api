@@ -4,23 +4,26 @@ import logger from '../config/logger';
 
 type RedisClient = Redis | RedisClientType;
 
+export function usesUpstash(): boolean {
+  const env = process.env.NODE_ENV;
+  return env !== 'development' && env !== 'local' && env !== 'test';
+}
+
 export class CacheService {
   private client: RedisClient;
   private isUpstash: boolean;
+  private upstashUrl: string;
+  private upstashToken: string;
 
   constructor(redisUrl?: string) {
-    const isLocalEnvironment =
-      process.env.NODE_ENV === 'development' ||
-      process.env.NODE_ENV === 'local' ||
-      process.env.NODE_ENV === 'test';
-
-    // Use Upstash in production/serverless, traditional Redis in development
-    this.isUpstash = !isLocalEnvironment;
+    this.isUpstash = usesUpstash();
 
     if (this.isUpstash) {
+      this.upstashUrl = redisUrl || process.env.UPSTASH_REDIS_REST_URL || '';
+      this.upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN || '';
       this.client = new Redis({
-        url: redisUrl || process.env.UPSTASH_REDIS_REST_URL || '',
-        token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
+        url: this.upstashUrl,
+        token: this.upstashToken,
       });
       logger.info('Upstash Redis client initialized for production/serverless environment');
     } else {
@@ -53,15 +56,18 @@ export class CacheService {
   }
 
   async connect(): Promise<void> {
-    try {
-      if (!this.isUpstash) {
-        await (this.client as RedisClientType).connect();
-      }
-      logger.info('Successfully connected to cache service');
-    } catch (err) {
-      logger.error({ err }, 'Failed to connect to cache service');
-      throw err;
+    if (this.isUpstash) {
+      const probe = new Redis({
+        url: this.upstashUrl,
+        token: this.upstashToken,
+        retry: { retries: 0 },
+      });
+      const reply = await probe.ping();
+      if (reply !== 'PONG') throw new Error('unexpected ping reply');
+    } else {
+      await (this.client as RedisClientType).connect();
     }
+    logger.info('Successfully connected to cache service');
   }
 
   async set(key: string, value: any, ttl?: number): Promise<void> {
