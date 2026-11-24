@@ -564,7 +564,7 @@ async function triggerReferralRewardIfEligible(userId: number): Promise<void> {
     await grantCreditsInternal(
       referrer.id,
       5,
-      `Referral reward — ${user.email}`,
+      'Referral reward',
       'referral_reward',
       String(userId),
       TransactionType.REFERRAL_REWARD
