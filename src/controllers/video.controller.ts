@@ -115,10 +115,8 @@ export async function createVideoHandler(
       message: 'Video created and processing started',
     });
   } catch (error) {
-    return reply.status(400).send({
-      message:
-        error instanceof Error ? error.message : 'Failed to create video',
-    });
+    request.log.error({ err: error }, 'video_create_failed');
+    return reply.status(400).send({ message: 'Failed to create video' });
   }
 }
 
@@ -163,9 +161,8 @@ export async function getVideoHandler(
 
     return reply.send(response);
   } catch (error) {
-    return reply.status(500).send({
-      message: error instanceof Error ? error.message : 'Failed to get video',
-    });
+    request.log.error({ err: error }, 'video_get_failed');
+    return reply.status(500).send({ message: 'Failed to get video' });
   }
 }
 
@@ -199,10 +196,8 @@ export async function getUserVideosHandler(
       },
     });
   } catch (error) {
-    return reply.status(500).send({
-      message:
-        error instanceof Error ? error.message : 'Failed to get user videos',
-    });
+    request.log.error({ err: error }, 'video_list_failed');
+    return reply.status(500).send({ message: 'Failed to get user videos' });
   }
 }
 
@@ -296,10 +291,8 @@ export async function checkVideoStatusHandler(
       message: `Video status: ${statusResult.status}`,
     });
   } catch (error) {
-    return reply.status(500).send({
-      message:
-        error instanceof Error ? error.message : 'Failed to check video status',
-    });
+    request.log.error({ err: error }, 'video_status_failed');
+    return reply.status(500).send({ message: 'Failed to check video status' });
   }
 }
 
@@ -339,12 +332,8 @@ export async function processVideoHandler(
       correlationId: video.correlationId,
     });
   } catch (error) {
-    return reply.status(500).send({
-      message:
-        error instanceof Error
-          ? error.message
-          : 'Failed to start video processing',
-    });
+    request.log.error({ err: error }, 'video_process_start_failed');
+    return reply.status(500).send({ message: 'Failed to start video processing' });
   }
 }
 
@@ -376,10 +365,8 @@ export async function getFailedVideosHandler(
       errorSummary: result.errorSummary,
     });
   } catch (error) {
-    return reply.status(500).send({
-      message:
-        error instanceof Error ? error.message : 'Failed to get failed videos',
-    });
+    request.log.error({ err: error }, 'video_failed_list_failed');
+    return reply.status(500).send({ message: 'Failed to get failed videos' });
   }
 }
 
@@ -406,9 +393,7 @@ export async function getVideoTraceHandler(
     const trace = await getVideoTrace(videoId);
     return reply.send(trace);
   } catch (error) {
-    return reply.status(500).send({
-      message:
-        error instanceof Error ? error.message : 'Failed to get video trace',
-    });
+    request.log.error({ err: error }, 'video_trace_failed');
+    return reply.status(500).send({ message: 'Failed to get video trace' });
   }
 }

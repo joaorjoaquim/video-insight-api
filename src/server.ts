@@ -30,6 +30,7 @@ export function buildServer() {
           : undefined,
     },
     ajv: {
+      customOptions: { removeAdditional: false },
       plugins: [
         addFormats,
         (ajv) => {
@@ -71,62 +72,20 @@ export function buildServer() {
     openapi: {
       openapi: '3.0.0',
       info: {
-        title:
-          'Video Insight API Documentation — Transcription, Summarization and Key Insights from Video URLs',
-        description: `
-            This API powers the backend for the Video Insight platform.
-
-            It provides the following endpoints:
-
-            Healthcheck: Verifies API health and database connectivity (/healthcheck)
-
-            Authentication: Authenticates users and provides JWT tokens (/auth/login)
-
-            Transcription: Transcribes video content from supported URLs (/transcribe)
-
-            Summarization: Generates a general summary and extracts key insights from videos (/summarize)
-
-            Storage: Retrieves and manages processed video summaries (/videos)
-
-            Built with Fastify, TypeORM, PostgreSQL, and secured with JWT authentication.
-        `,
+        title: 'SummaryVideos API',
+        description:
+          'REST API behind summaryvideos.com: authentication, video submissions and their analysis, credits.',
         version: '1.0.0',
-        contact: {
-          name: 'Support team',
-          email: 'support@example.com',
-        },
       },
       servers: [
-        {
-          url: 'http://localhost:5000',
-          description: 'Development Server',
-        },
-        {
-          url: 'https://api.example.com',
-          description: 'Production Server',
-        },
+        { url: 'https://api.summaryvideos.com', description: 'Production' },
+        { url: 'http://localhost:5000', description: 'Local development' },
       ],
       tags: [
         {
           name: 'Health',
           description:
             'Endpoints to verify API health and database connectivity',
-        },
-        {
-          name: 'Authentication',
-          description: 'Endpoints related to user authentication',
-        },
-        {
-          name: 'Transcription',
-          description: 'Endpoints to transcribe video content',
-        },
-        {
-          name: 'Summarization',
-          description: 'Endpoints to summarize video content',
-        },
-        {
-          name: 'Storage',
-          description: 'Endpoints to store and manage video summaries',
         },
       ],
       components: {
@@ -143,15 +102,11 @@ export function buildServer() {
           bearerAuth: [],
         },
       ],
-      externalDocs: {
-        url: 'https://swagger.io',
-        description: 'Find more information here',
-      },
     },
   });
 
   app.register(swaggerUi, {
-    routePrefix: '/',
+    routePrefix: '/docs',
     uiConfig: {
       docExpansion: 'full',
       deepLinking: false,

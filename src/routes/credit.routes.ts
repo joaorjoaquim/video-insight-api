@@ -52,7 +52,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
       schema: {
         body: Type.Object({
           code: Type.String({ minLength: 1, maxLength: 50 }),
-        }),
+        }, { additionalProperties: false }),
         response: {
           200: Type.Object({
             credits: Type.Number(),
@@ -77,7 +77,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
         body: Type.Object({
           action: Type.Union([Type.Literal('star'), Type.Literal('fork')]),
           repo: Type.Optional(Type.Union([Type.Literal('web'), Type.Literal('api')])),
-        }),
+        }, { additionalProperties: false }),
         response: {
           200: Type.Object({
             credits: Type.Number(),
@@ -105,6 +105,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
     {
       config: { rateLimit: adminRateLimit },
       schema: {
+        hide: true,
         body: AdminCreditRequestSchema,
         response: {
           200: AdminCreditResponseSchema,
@@ -122,6 +123,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
     {
       config: { rateLimit: adminRateLimit },
       schema: {
+        hide: true,
         body: AdminCreditRequestSchema,
         response: {
           200: AdminCreditResponseSchema,
@@ -140,13 +142,14 @@ export async function creditRoutes(fastify: FastifyInstance) {
     {
       config: { rateLimit: adminRateLimit },
       schema: {
+        hide: true,
         body: Type.Object({
           code: Type.String({ minLength: 1, maxLength: 50 }),
           credits: Type.Number({ minimum: 1 }),
           maxUses: Type.Optional(Type.Number({ minimum: 1 })),
           expiresAt: Type.Optional(Type.String({ format: 'date-time' })),
           description: Type.Optional(Type.String({ maxLength: 500 })),
-        }),
+        }, { additionalProperties: false }),
         response: {
           201: Type.Object({ promoCode: Type.Any() }),
           400: ErrorResponseSchema,
@@ -164,6 +167,7 @@ export async function creditRoutes(fastify: FastifyInstance) {
     {
       config: { rateLimit: adminRateLimit },
       schema: {
+        hide: true,
         response: {
           200: Type.Object({
             promoCodes: Type.Array(Type.Any()),

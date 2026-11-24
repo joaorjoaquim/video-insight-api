@@ -4,6 +4,17 @@ import { UserEntity } from '../entities/User';
 import bcrypt from 'bcrypt';
 import logger from '../config/logger';
 
+const BCRYPT_ROUNDS = 10;
+
+let dummyHash: Promise<string> | undefined;
+
+// Spends one bcrypt comparison when there is no stored hash to check, so a login for an unknown e-mail or
+// an OAuth-only account costs the same as a wrong password. The hash is of a value nobody keeps.
+export async function burnPasswordCheck(password: string): Promise<void> {
+  if (!dummyHash) dummyHash = bcrypt.hash(randomBytes(32).toString('hex'), BCRYPT_ROUNDS);
+  await bcrypt.compare(password, await dummyHash);
+}
+
 function generateReferralCode(): string {
   return randomBytes(4).toString('hex');
 }
@@ -12,7 +23,7 @@ export async function createUser(
   userData: Partial<UserEntity>
 ): Promise<Partial<UserEntity>> {
   if (userData.password) {
-    userData.password = await bcrypt.hash(userData.password, 10);
+    userData.password = await bcrypt.hash(userData.password, BCRYPT_ROUNDS);
   }
 
   const referralCode = generateReferralCode();

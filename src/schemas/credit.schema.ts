@@ -33,10 +33,10 @@ export const GetCreditsResponseSchema = Type.Object({
 });
 
 export const AdminCreditRequestSchema = Type.Object({
-  userId: Type.Optional(Type.Number({ example: 5 })),
+  userId: Type.Integer({ example: 5, minimum: 1 }),
   amount: Type.Number({ example: 10, minimum: 1 }),
   description: Type.String({ example: 'Admin credit grant' }),
-});
+}, { additionalProperties: false });
 
 export const AdminCreditResponseSchema = Type.Object({
   message: Type.String({ example: 'Credits granted successfully' }),

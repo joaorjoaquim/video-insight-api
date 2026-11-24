@@ -79,7 +79,7 @@ export async function createPromoCodeHandler(
     return reply.status(201).send({ promoCode: promo });
   } catch (err: any) {
     if (err.statusCode === 409) {
-      return reply.status(409).send({ message: err.message });
+      return reply.status(409).send({ message: 'Promo code already exists' });
     }
     request.log.error({ err }, 'admin_promo_create_error');
     return reply.status(500).send({ message: 'Failed to create promo code' });

@@ -1,10 +1,11 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { VerifyOptions } from '@fastify/jwt';
 import fp from 'fastify-plugin';
+import { requireJwtSecret } from '../config/jwt-secret';
 
 async function authPlugin(fastify: FastifyInstance, opts: FastifyPluginOptions) {
     fastify.register(require('@fastify/jwt'), {
-        secret: process.env.JWT_SECRET || 'supersecret-ultrapassword-1234567890'
+        secret: requireJwtSecret()
     });
 
     fastify.decorate("authenticate", async (request: FastifyRequest, reply: FastifyReply) => {

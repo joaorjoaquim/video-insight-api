@@ -12,12 +12,12 @@ const cronRateLimit = { max: 5, timeWindow: '5 minutes' };
 export async function cronRoutes(fastify: FastifyInstance) {
   fastify.get(
     '/expire-promos',
-    { config: { rateLimit: cronRateLimit }, schema: { response: { 200: CronResponseSchema } } },
+    { config: { rateLimit: cronRateLimit }, schema: { hide: true, response: { 200: CronResponseSchema } } },
     expirePromoCodesHandler
   );
   fastify.get(
     '/restore-credits',
-    { config: { rateLimit: cronRateLimit }, schema: { response: { 200: CronResponseSchema } } },
+    { config: { rateLimit: cronRateLimit }, schema: { hide: true, response: { 200: CronResponseSchema } } },
     weeklyCreditRestoreHandler
   );
 }

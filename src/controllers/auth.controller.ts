@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import {
   getUserByEmail,
   validatePassword,
+  burnPasswordCheck,
   createUser,
   createOrUpdateOAuthUser,
   findUserByReferralCode,
@@ -84,12 +85,9 @@ export async function loginController(
   try {
     const user = await getUserByEmail(email);
 
-    if (!user) {
+    if (!user || !user.password) {
+      await burnPasswordCheck(password);
       return reply.status(401).send({ message: 'Invalid email or password' });
-    }
-
-    if (!user.password) {
-      return reply.status(401).send({ message: 'Please use OAuth to login' });
     }
 
     const isValid = await validatePassword(user, password);

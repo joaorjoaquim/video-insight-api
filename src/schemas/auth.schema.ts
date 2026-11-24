@@ -19,7 +19,7 @@ export const SignupBodySchema = Type.Object({
       example: 'a3f8c21b',
     })
   ),
-});
+}, { additionalProperties: false });
 
 // Login Schema
 export const LoginBodySchema = Type.Object({
@@ -33,7 +33,7 @@ export const LoginBodySchema = Type.Object({
     description: 'Senha do usuário',
     example: '123456',
   }),
-});
+}, { additionalProperties: false });
 
 // User Response Schema
 export const UserResponseSchema = Type.Object({

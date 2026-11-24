@@ -1,22 +1,23 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { WriteDataSource } from '../config/db.config';
 
-export async function healthcheckController(_request: FastifyRequest, reply: FastifyReply) {
+export async function healthcheckController(request: FastifyRequest, reply: FastifyReply) {
   const initialized = WriteDataSource.isInitialized;
   let latency_ms: number | null = null;
-  let dbError: string | undefined;
+  let queryFailed = false;
 
   if (initialized) {
     const start = Date.now();
     try {
       await WriteDataSource.query('SELECT 1');
       latency_ms = Date.now() - start;
-    } catch (err: any) {
-      dbError = err?.message;
+    } catch (err) {
+      queryFailed = true;
+      request.log.error({ err }, 'healthcheck_db_query_failed');
     }
   }
 
-  const status = !initialized || dbError
+  const status = !initialized || queryFailed
     ? 'down'
     : latency_ms! > 2000
       ? 'degraded'
@@ -25,6 +26,5 @@ export async function healthcheckController(_request: FastifyRequest, reply: Fas
   reply.status(status === 'down' ? 503 : 200).send({
     status,
     db: { initialized, latency_ms },
-    ...(dbError ? { message: dbError } : {}),
   });
 }

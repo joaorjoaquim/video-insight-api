@@ -16,7 +16,7 @@ interface GetCreditsRequest {
 
 interface AdminCreditRequest {
   Body: {
-    userId?: number;
+    userId: number;
     amount: number;
     description: string;
   };
@@ -96,7 +96,7 @@ export async function grantCreditsHandler(
 
     request.log.info({
       amount,
-      userId: userId || 'all_users',
+      userId,
       description: sanitizedDescription,
       ip: request.ip,
     }, 'admin_credit_grant_attempt');
@@ -110,7 +110,7 @@ export async function grantCreditsHandler(
       // Log successful operation
       request.log.info('Admin credit grant successful', {
         amount,
-        userId: userId || 'all_users',
+        userId,
         description: sanitizedDescription,
       });
 
@@ -123,7 +123,7 @@ export async function grantCreditsHandler(
       request.log.warn('Admin credit grant failed', {
         reason: result.message,
         amount,
-        userId: userId || 'all_users',
+        userId,
       });
 
       return reply.status(400).send({
@@ -172,7 +172,7 @@ export async function deductCreditsHandler(
 
     request.log.info({
       amount,
-      userId: userId || 'all_users',
+      userId,
       description: sanitizedDescription,
       ip: request.ip,
     }, 'admin_credit_deduct_attempt');
@@ -186,7 +186,7 @@ export async function deductCreditsHandler(
       // Log successful operation
       request.log.info('Admin credit deduction successful', {
         amount,
-        userId: userId || 'all_users',
+        userId,
         description: sanitizedDescription,
       });
 
@@ -199,7 +199,7 @@ export async function deductCreditsHandler(
       request.log.warn('Admin credit deduction failed', {
         reason: result.message,
         amount,
-        userId: userId || 'all_users',
+        userId,
       });
 
       return reply.status(400).send({

@@ -51,7 +51,7 @@ export interface CreditRefundRequest {
 }
 
 export interface AdminCreditRequest {
-  userId?: number; // If null, applies to all users
+  userId: number;
   amount: number;
   description: string;
 }
@@ -248,55 +248,27 @@ export async function grantCredits(
     return { success: false, message: 'Invalid admin hash' };
   }
 
-  if (userId) {
-    // Grant credits to specific user
-    const user = await UserRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      return { success: false, message: 'User not found' };
-    }
-
-    const transaction = CreditTransactionRepository.create({
-      userId,
-      amount,
-      type: TransactionType.ADMIN_GRANT,
-      status: TransactionStatus.COMPLETED,
-      description,
-      referenceType: 'admin_action',
-    });
-
-    await CreditTransactionRepository.save(transaction);
-    await UserRepository.update(userId, { credits: user.credits + amount });
-
-    return {
-      success: true,
-      message: `Granted ${amount} credits to user ${userId}`,
-    };
-  } else {
-    // Grant credits to all users
-    const users = await UserRepository.find();
-    const transactions = users.map((user) =>
-      CreditTransactionRepository.create({
-        userId: user.id,
-        amount,
-        type: TransactionType.ADMIN_GRANT,
-        status: TransactionStatus.COMPLETED,
-        description,
-        referenceType: 'admin_action',
-      })
-    );
-
-    await CreditTransactionRepository.save(transactions);
-
-    // Update all users
-    for (const user of users) {
-      await UserRepository.update(user.id, { credits: user.credits + amount });
-    }
-
-    return {
-      success: true,
-      message: `Granted ${amount} credits to all ${users.length} users`,
-    };
+  const user = await UserRepository.findOne({ where: { id: userId } });
+  if (!user) {
+    return { success: false, message: 'User not found' };
   }
+
+  const transaction = CreditTransactionRepository.create({
+    userId,
+    amount,
+    type: TransactionType.ADMIN_GRANT,
+    status: TransactionStatus.COMPLETED,
+    description,
+    referenceType: 'admin_action',
+  });
+
+  await CreditTransactionRepository.save(transaction);
+  await UserRepository.update(userId, { credits: user.credits + amount });
+
+  return {
+    success: true,
+    message: `Granted ${amount} credits to user ${userId}`,
+  };
 }
 
 export async function deductCredits(
@@ -311,66 +283,29 @@ export async function deductCredits(
     return { success: false, message: 'Invalid admin hash' };
   }
 
-  if (userId) {
-    // Deduct credits from specific user
-    const user = await UserRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      return { success: false, message: 'User not found' };
-    }
-
-    if (user.credits < amount) {
-      return { success: false, message: 'User does not have enough credits' };
-    }
-
-    const transaction = CreditTransactionRepository.create({
-      userId,
-      amount: -amount,
-      type: TransactionType.ADMIN_DEDUCT,
-      status: TransactionStatus.COMPLETED,
-      description,
-      referenceType: 'admin_action',
-    });
-
-    await CreditTransactionRepository.save(transaction);
-    await UserRepository.update(userId, { credits: user.credits - amount });
-
-    return {
-      success: true,
-      message: `Deducted ${amount} credits from user ${userId}`,
-    };
-  } else {
-    // Deduct credits from all users
-    const users = await UserRepository.find();
-    const validUsers = users.filter((user) => user.credits >= amount);
-
-    if (validUsers.length === 0) {
-      return {
-        success: false,
-        message: 'No users have enough credits to deduct',
-      };
-    }
-
-    const transactions = validUsers.map((user) =>
-      CreditTransactionRepository.create({
-        userId: user.id,
-        amount: -amount,
-        type: TransactionType.ADMIN_DEDUCT,
-        status: TransactionStatus.COMPLETED,
-        description,
-        referenceType: 'admin_action',
-      })
-    );
-
-    await CreditTransactionRepository.save(transactions);
-
-    // Update valid users
-    for (const user of validUsers) {
-      await UserRepository.update(user.id, { credits: user.credits - amount });
-    }
-
-    return {
-      success: true,
-      message: `Deducted ${amount} credits from ${validUsers.length} users`,
-    };
+  const user = await UserRepository.findOne({ where: { id: userId } });
+  if (!user) {
+    return { success: false, message: 'User not found' };
   }
+
+  if (user.credits < amount) {
+    return { success: false, message: 'User does not have enough credits' };
+  }
+
+  const transaction = CreditTransactionRepository.create({
+    userId,
+    amount: -amount,
+    type: TransactionType.ADMIN_DEDUCT,
+    status: TransactionStatus.COMPLETED,
+    description,
+    referenceType: 'admin_action',
+  });
+
+  await CreditTransactionRepository.save(transaction);
+  await UserRepository.update(userId, { credits: user.credits - amount });
+
+  return {
+    success: true,
+    message: `Deducted ${amount} credits from user ${userId}`,
+  };
 }

@@ -6,7 +6,7 @@ export const CreateVideoBodySchema = Type.Object({
     example: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     format: 'uri',
   }),
-});
+}, { additionalProperties: false });
 
 export const GetVideoParamsSchema = Type.Object({
   id: Type.String({
